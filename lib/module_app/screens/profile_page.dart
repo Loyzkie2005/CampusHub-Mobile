@@ -91,7 +91,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted || current?.id != user.id || version != _profileVersion) {
         return;
       }
-      await SessionService.updateUser(user);
+      if (!await SessionService.updateUser(user, expectedToken: token)) return;
       if (mounted) {
         setState(() => _user = user);
         widget.onUserChanged?.call(user);
@@ -218,7 +218,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     final after = await SessionService.loadUser();
     if (after?.id != owner.id || user.id != owner.id) return;
-    await SessionService.updateUser(user);
+    if (!await SessionService.updateUser(user, expectedToken: token)) return;
     if (mounted) {
       setState(() => _user = user);
       widget.onUserChanged?.call(user);

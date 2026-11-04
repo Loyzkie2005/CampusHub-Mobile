@@ -116,7 +116,18 @@ class _AccountRecoveryDialogState extends State<AccountRecoveryDialog> {
     );
     if (!mounted) return;
     if (result.success && result.user != null) {
-      await SessionService.updateUser(result.user!);
+      if (!await SessionService.updateUser(
+        result.user!,
+        expectedToken: widget.verificationToken,
+      )) {
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _error = 'Your session changed. Please log in again.';
+          });
+        }
+        return;
+      }
     }
     if (!mounted) return;
     setState(() {

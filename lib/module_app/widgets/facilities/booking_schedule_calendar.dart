@@ -139,18 +139,22 @@ class BookingScheduleCalendar extends StatelessWidget {
           },
         ),
         const SizedBox(height: 12),
-        SingleChildScrollView(
-          key: const ValueKey('schedule-legend'),
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              _legend('Available', bookingGreen),
-              _legend('Not Bookable', bookingGreyDot),
-              _legend('Campus Use / Hold', bookingRed, prohibited: true),
-              _legend('Reserved', bookingBlueDot),
-              _legend('Maintenance', scheduleMaintenance),
-              _legend('Class Schedule', bookingGoldText, last: true),
-            ],
+        SizedBox(
+          width: double.infinity,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Row(
+              key: const ValueKey('schedule-legend'),
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _legend('Available', bookingGreen),
+                _legend('Closed', bookingGreyDot),
+                _legend('Unavailable', bookingRed, prohibited: true),
+                _legend('Reserved', bookingBlueDot, last: true),
+              ],
+            ),
           ),
         ),
       ],
@@ -240,17 +244,7 @@ class BookingScheduleCalendar extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: isSelected ? bookingNavy : Colors.transparent,
                   ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      number,
-                      if (isSelected)
-                        const Positioned(
-                          bottom: 3,
-                          child: _StatusDot(scheduleGold),
-                        ),
-                    ],
-                  ),
+                  child: number,
                 ),
                 const SizedBox(height: 3),
                 SizedBox(
@@ -289,6 +283,7 @@ class BookingScheduleCalendar extends StatelessWidget {
         const SizedBox(width: 5),
         Text(
           label,
+          maxLines: 1,
           style: const TextStyle(
             fontFamily: scheduleFont,
             fontVariations: [FontVariation('wght', 400)],

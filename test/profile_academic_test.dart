@@ -32,7 +32,10 @@ void main() {
   test(
     'Profile sends real numeric academic identifiers and persists them',
     () async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'campushub_logged_user': jsonEncode({'id': 1}),
+        'campushub_chat_token': 'test-token',
+      });
       await http.runWithClient(
         () async {
           final result = await AuthService.completeProfile(

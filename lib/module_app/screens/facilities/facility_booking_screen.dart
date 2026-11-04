@@ -4,9 +4,11 @@ import '../../models/facility_item.dart';
 import '../../services/facility_booking_service.dart';
 import '../../session/session_service.dart';
 import '../../widgets/facilities/booking_widgets.dart';
+import '../../widgets/facilities/booking_time_dialog.dart';
 import '../../widgets/facilities/booking_schedule_calendar.dart';
 import '../../theme/app_typography.dart';
 import 'facility_booking_status_screen.dart';
+import 'facility_booking_history_screen.dart';
 
 class FacilityBookingScreen extends StatefulWidget {
   const FacilityBookingScreen({
@@ -39,6 +41,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       key: TextEditingController(),
   };
   final _requirements = <String>{};
+  final _feeFields = <String, TextEditingController>{};
+  List<Map<String, dynamic>> _itemFees = [];
+  Map<String, dynamic>? _submittedPayload;
   final _requestKey = FacilityBookingService.newRequestKey();
   DateTime? _date;
   late DateTime _month;
@@ -48,6 +53,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
   String? _calendarError;
   List<Map<String, dynamic>> _slots = [];
   Map<String, dynamic>? _slot, _window, _quote, _booking;
+  String? _customStart, _customEnd;
+  bool _hasExplicitTimeSelection = false;
   String? _error;
   int _step = 0;
   int _loadVersion = 0;
@@ -92,6 +99,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
   Future<void> _refreshAvailability() async {
     if (!mounted ||
         _busy ||
+        _submittedPayload != null ||
         _pickingTime ||
         _refreshing ||
         _calendarLoading ||
@@ -147,6 +155,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
           if (matching != null) _window = matching;
           if (invalid || open.isEmpty) {
             _slot = _window = _quote = null;
+            _customStart = _customEnd = null;
+            _hasExplicitTimeSelection = false;
             if (open.isEmpty) {
               _date = null;
               _slots = [];
@@ -168,6 +178,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
           _days = {};
           _slots = [];
           _slot = _window = _quote = null;
+          _customStart = _customEnd = null;
+          _hasExplicitTimeSelection = false;
           _step = 0;
           _calendarError = '$error';
         });
@@ -191,6 +203,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
 
   @override
   void dispose() {
+    for (final controller in _feeFields.values) {
+      controller.dispose();
+    }
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     _monthVersion++;
@@ -212,6 +227,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       _date = null;
       _slot = null;
       _window = null;
+      _customStart = null;
+      _customEnd = null;
+      _hasExplicitTimeSelection = false;
       _quote = null;
       _slots = [];
       _days = {};
@@ -235,6 +253,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         if (initialSelection != null) {
           _date = initialSelection;
           _slots = days[initialSelection]!;
+          _syncCustomWindow(_slots);
         }
       });
     } catch (error) {
@@ -262,6 +281,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       _loading = true;
       _slot = null;
       _window = null;
+      _customStart = null;
+      _customEnd = null;
+      _hasExplicitTimeSelection = false;
       _slots = [];
       if (!preserveError) _error = null;
     });
@@ -275,6 +297,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
           _date = null;
           _slots = [];
           _error = 'This date is no longer available. Select another date.';
+        } else {
+          _syncCustomWindow(slots);
         }
       });
     } catch (error) {
@@ -304,75 +328,53 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       ? '${minutes ~/ 60} ${minutes == 60 ? 'hour' : 'hours'}'
       : '$minutes minutes';
 
-  Future<void> _pickTime(bool start) async {
-    final window = _window, chosen = _slot, date = _date;
-    if (_busy || window?['time_selection'] != 'custom' || chosen == null) {
-      return;
+  bool get _hasCustomHours =>
+      _slots.any((slot) => slot['time_selection'] == 'custom') ||
+      (_slots.isEmpty &&
+          widget.facility.workflowConfig['operating_hours'] is Map);
+
+  int _minutesBetween(String start, String end) {
+    final first = _clock(start), last = _clock(end);
+    return (last.hour - first.hour) * 60 + last.minute - first.minute;
+  }
+
+  int _slotDurationMinutes(Map<String, dynamic> slot) =>
+      _minutesBetween('${slot['start']}', '${slot['end']}');
+
+  void _syncCustomWindow(List<Map<String, dynamic>> slots) {
+    final openCustom = slots
+        .where(
+          (s) =>
+              FacilityBookingService.isAvailableSlot(s) &&
+              s['time_selection'] == 'custom',
+        )
+        .toList();
+    if (openCustom.length == 1) {
+      _window = openCustom.first;
+      _customStart = '${openCustom.first['start']}';
+      _customEnd = '${openCustom.first['end']}';
+    } else {
+      _window = null;
+      _customStart = null;
+      _customEnd = null;
     }
+    _hasExplicitTimeSelection = false;
+    _slot = null;
+  }
+
+  Future<void> _pickTime(bool start) async {
+    final window = _window, date = _date;
+    if (_busy || window?['time_selection'] != 'custom') return;
+    final initialValue = start
+        ? (_customStart ?? '${window!['start']}')
+        : (_customEnd ?? '${window!['end']}');
     _pickingTime = true;
-    final picked = await showTimePicker(
+    final picked = await showDialog<TimeOfDay>(
       context: context,
-      initialTime: _clock(chosen[start ? 'start' : 'end']),
-      initialEntryMode: TimePickerEntryMode.inputOnly,
-      helpText: start ? 'Start time (24-hour)' : 'End time (24-hour)',
-      builder: (context, child) {
-        final media = MediaQuery.of(context);
-        return MediaQuery(
-          // Flutter's fixed-width time dialog otherwise clips its action buttons
-          // on narrow phones at large text sizes. The page keeps its full scale.
-          data: media.copyWith(
-            alwaysUse24HourFormat: true,
-            textScaler: media.size.width < 360
-                ? media.textScaler.clamp(maxScaleFactor: 1.3)
-                : media.textScaler,
-          ),
-          child: Theme(
-            data: Theme.of(context).copyWith(
-              textTheme: Theme.of(
-                context,
-              ).textTheme.apply(fontFamily: scheduleFont),
-              timePickerTheme: TimePickerThemeData(
-                padding: EdgeInsets.symmetric(
-                  horizontal: media.size.width < 360 ? 0 : 24,
-                  vertical: 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                helpTextStyle: const TextStyle(
-                  fontFamily: scheduleFont,
-                  fontVariations: [FontVariation('wght', 500)],
-                  fontSize: 12,
-                ),
-                confirmButtonStyle: TextButton.styleFrom(
-                  textStyle: const TextStyle(
-                    fontFamily: scheduleFont,
-                    fontVariations: [FontVariation('wght', 600)],
-                    fontSize: 14,
-                  ),
-                ),
-                cancelButtonStyle: TextButton.styleFrom(
-                  textStyle: const TextStyle(
-                    fontFamily: scheduleFont,
-                    fontVariations: [FontVariation('wght', 500)],
-                    fontSize: 14,
-                  ),
-                ),
-                hourMinuteTextStyle: const TextStyle(
-                  fontFamily: scheduleFont,
-                  fontVariations: [FontVariation('wght', 500)],
-                  fontSize: 40,
-                ),
-              ),
-              colorScheme: const ColorScheme.light(
-                primary: bookingNavy,
-                secondary: scheduleGold,
-              ),
-            ),
-            child: child!,
-          ),
-        );
-      },
+      builder: (_) => BookingTimeDialog(
+        title: start ? 'Start Time' : 'End Time',
+        initialTime: _clock(initialValue),
+      ),
     );
     _pickingTime = false;
     if (!mounted ||
@@ -381,122 +383,271 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         !identical(_window, window)) {
       return;
     }
+    _applyTime(start, picked, window!);
+  }
+
+  void _applyTime(bool start, TimeOfDay picked, Map<String, dynamic> window) {
     String key(TimeOfDay value) =>
         '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-    final first = start ? key(picked) : '${chosen['start']}';
-    final last = start ? '${chosen['end']}' : key(picked);
-    if (first.compareTo('${window!['start']}') < 0 ||
-        last.compareTo('${window['end']}') > 0 ||
-        first.compareTo(last) >= 0) {
-      setState(
-        () => _error =
-            'Choose a start before the end, within ${window['label']}.',
-      );
-      return;
-    }
+    final first = start ? key(picked) : (_customStart ?? '${window['start']}');
+    final last = start ? (_customEnd ?? '${window['end']}') : key(picked);
     final minimum = window['minimum_duration_minutes'];
-    final firstClock = _clock(first), lastClock = _clock(last);
-    final minutes =
-        (lastClock.hour - firstClock.hour) * 60 +
-        lastClock.minute -
-        firstClock.minute;
-    if (minimum is num && minutes < minimum) {
-      setState(
-        () => _error =
-            'Minimum booking duration is ${_durationLabel(minimum.toInt())}.',
-      );
-      return;
-    }
+    final minutes = _minutesBetween(first, last);
     setState(() {
-      _slot = {...chosen, 'start': first, 'end': last};
+      _customStart = first;
+      _customEnd = last;
+      _hasExplicitTimeSelection = true;
       _quote = null;
-      _error = null;
+      if (first.compareTo('${window['start']}') < 0 ||
+          last.compareTo('${window['end']}') > 0 ||
+          first.compareTo(last) >= 0) {
+        _slot = null;
+        _error = 'Choose a start before the end, within ${window['label']}.';
+      } else if (minimum is num && minutes < minimum) {
+        _slot = null;
+        _error =
+            'Minimum booking duration is ${_durationLabel(minimum.toInt())}.';
+      } else {
+        _slot = {
+          ...window,
+          'start': first,
+          'end': last,
+          'label': '${bookingTime(first)} - ${bookingTime(last)}',
+        };
+        _error = null;
+      }
     });
   }
 
-  Widget _timeChoices() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const SizedBox(height: 4),
-      const Text(
-        'Choose your start and end time within the selected available period.',
-        style: TextStyle(
-          fontFamily: scheduleFont,
-          fontVariations: [FontVariation('wght', 400)],
-          fontSize: 12,
-          color: bookingMuted,
-        ),
-      ),
-      if (_window?['minimum_duration_minutes'] is num &&
-          (_window!['minimum_duration_minutes'] as num) > 0)
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            'Minimum booking duration: ${_durationLabel((_window!['minimum_duration_minutes'] as num).toInt())}.',
-            style: const TextStyle(
-              fontFamily: scheduleFont,
-              fontVariations: [FontVariation('wght', 400)],
-              fontSize: 12,
-              color: bookingMuted,
-            ),
+  Widget _timeChoices() {
+    final startVal = _customStart ?? '${_window!['start']}';
+    final endVal = _customEnd ?? '${_window!['end']}';
+    final minutes = _hasExplicitTimeSelection
+        ? _minutesBetween(startVal, endVal)
+        : 0;
+    final hasInvalidDuration = _hasExplicitTimeSelection && _error != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        const Text(
+          'Select Booking Time',
+          style: TextStyle(
+            fontFamily: scheduleFont,
+            fontVariations: [FontVariation('wght', 600)],
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: bookingNavy,
           ),
         ),
-      const SizedBox(height: 10),
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth < 320
-              ? constraints.maxWidth
-              : (constraints.maxWidth - 8) / 2;
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final start in [true, false])
-                SizedBox(
-                  width: width,
-                  child: OutlinedButton(
-                    key: ValueKey(
-                      start ? 'booking-start-time' : 'booking-end-time',
-                    ),
-                    onPressed: _busy ? null : () => _pickTime(start),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: bookingNavy,
-                      minimumSize: const Size(double.infinity, 60),
-                      side: const BorderSide(color: bookingOutline),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+        if (_window?['minimum_duration_minutes'] is num &&
+            (_window!['minimum_duration_minutes'] as num) > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Minimum booking duration: ${_durationLabel((_window!['minimum_duration_minutes'] as num).toInt())}.',
+              style: const TextStyle(
+                fontFamily: scheduleFont,
+                fontVariations: [FontVariation('wght', 400)],
+                fontSize: 12,
+                color: bookingMuted,
+              ),
+            ),
+          ),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final stackFields =
+                constraints.maxWidth < 260 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21;
+            final width = stackFields
+                ? constraints.maxWidth
+                : (constraints.maxWidth - 8) / 2;
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final start in [true, false])
+                  SizedBox(
+                    width: width,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          start ? 'Start time' : 'End time',
+                          start ? 'Start Time' : 'End Time',
                           style: const TextStyle(
                             fontFamily: scheduleFont,
                             fontVariations: [FontVariation('wght', 500)],
                             fontSize: 12,
+                            color: bookingMuted,
                           ),
                         ),
-                        Text(
-                          bookingTime(_slot![start ? 'start' : 'end']),
-                          style: const TextStyle(
-                            fontFamily: scheduleFont,
-                            fontVariations: [FontVariation('wght', 600)],
-                            fontSize: 14,
+                        const SizedBox(height: 6),
+                        Semantics(
+                          label: start ? 'Start Time' : 'End Time',
+                          child: OutlinedButton(
+                            key: ValueKey(
+                              start ? 'booking-start-time' : 'booking-end-time',
+                            ),
+                            onPressed: _busy ? null : () => _pickTime(start),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: bookingNavy,
+                              minimumSize: const Size(double.infinity, 48),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
+                              side: BorderSide(
+                                color: hasInvalidDuration
+                                    ? bookingRed.withValues(alpha: 0.5)
+                                    : bookingOutline,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    start
+                                        ? bookingTime(startVal)
+                                        : (_hasExplicitTimeSelection
+                                              ? bookingTime(endVal)
+                                              : 'Select time'),
+                                    style: TextStyle(
+                                      fontFamily: scheduleFont,
+                                      fontVariations: const [
+                                        FontVariation('wght', 600),
+                                      ],
+                                      fontSize: 14,
+                                      color: hasInvalidDuration
+                                          ? bookingRed
+                                          : !start && !_hasExplicitTimeSelection
+                                          ? bookingMuted
+                                          : bookingNavy,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 18,
+                                  color: bookingMuted,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          key: const ValueKey('booking-selected-duration'),
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            const Text(
+              'Selected Duration',
+              style: TextStyle(
+                fontFamily: scheduleFont,
+                fontVariations: [FontVariation('wght', 500)],
+                fontSize: 12,
+                color: bookingMuted,
+              ),
+            ),
+            Text(
+              !_hasExplicitTimeSelection
+                  ? 'Select start and end time'
+                  : (minutes > 0
+                        ? _durationLabel(minutes)
+                        : 'Invalid time range'),
+              style: TextStyle(
+                fontFamily: scheduleFont,
+                fontVariations: const [FontVariation('wght', 600)],
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: !_hasExplicitTimeSelection
+                    ? bookingMuted
+                    : (hasInvalidDuration || minutes <= 0
+                          ? bookingRed
+                          : bookingNavy),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _selectionSummary() => Padding(
+    padding: const EdgeInsets.only(top: 14),
+    child: Container(
+      key: const ValueKey('schedule-selection-summary'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bookingSurfaceLight,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: bookingOutline),
       ),
-    ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final item in [
+            (
+              'Selected Date',
+              bookingDate(FacilityBookingService.dateKey(_date!)),
+            ),
+            ('Start Time', bookingTime(_slot!['start'])),
+            ('End Time', bookingTime(_slot!['end'])),
+            ('Total Duration', _durationLabel(_slotDurationMinutes(_slot!))),
+          ])
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.$1,
+                      style: const TextStyle(
+                        fontFamily: scheduleFont,
+                        fontVariations: [FontVariation('wght', 400)],
+                        fontSize: 12,
+                        color: bookingMuted,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      item.$2,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontFamily: scheduleFont,
+                        fontVariations: [FontVariation('wght', 600)],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: bookingNavy,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
   );
 
   void _go(int step) {
+    if (_submittedPayload != null && step != 3) return;
     setState(() {
       _step = step;
       _error = null;
@@ -520,23 +671,31 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       if (_step < 2) {
         final quote = await widget.service.request(
           'facilities/${widget.facility.id}/quote/',
-          body: {..._schedule, if (_step == 0) 'availability_only': true},
-        );
-        if (!mounted) return;
-        setState(() => _quote = quote);
-        _go(_step + 1);
-      } else {
-        final response = await widget.service.request(
-          'bookings/',
           body: {
             ..._schedule,
-            'facility_id': widget.facility.id,
-            'request_key': _requestKey,
-            'quoted_amount': _quote!['total_amount'],
-            for (final item in _fields.entries)
-              item.key: item.value.text.trim(),
-            'additional_requirements': _requirements.toList(),
+            if (_step == 0) 'availability_only': true,
+            if (_step == 1) ..._bookingInputs,
           },
+        );
+        if (!mounted) return;
+        setState(() {
+          _quote = quote;
+          _loadPricingOptions(quote);
+        });
+        _go(_step + 1);
+      } else {
+        _submittedPayload ??= {
+          ..._schedule,
+          'facility_id': widget.facility.id,
+          'request_key': _requestKey,
+          'quoted_amount': _quote!['total_amount'],
+          if (_quote!['quote_token'] != null)
+            'quote_token': _quote!['quote_token'],
+          ..._bookingInputs,
+        };
+        final response = await widget.service.request(
+          'bookings/',
+          body: _submittedPayload,
         );
         if (!mounted) return;
         setState(
@@ -546,13 +705,90 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = '$error');
-        if (_step == 0) await _loadSlots(preserveError: true);
+        setState(() {
+          _error = '$error';
+          if (_step == 2 && error is BookingException && !error.uncertain) {
+            _submittedPayload = null;
+            _quote = null;
+            _step = 1;
+          }
+        });
+        if (_step == 0) {
+          if (_scroll.hasClients) _scroll.jumpTo(0);
+          await _loadSlots(preserveError: true);
+        }
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  Map<String, dynamic> get _bookingInputs => {
+    for (final item in _fields.entries) item.key: item.value.text.trim(),
+    'additional_requirements': _requirements.toList(),
+    'fee_quantities': {
+      for (final item in _feeFields.entries)
+        item.key: item.value.text.trim().isEmpty ? '0' : item.value.text.trim(),
+    },
+  };
+
+  void _loadPricingOptions(Map<String, dynamic> response) {
+    final options = response['pricing_options'];
+    if (options is! Map || options['item_fees'] is! List) return;
+    final fees = (options['item_fees'] as List)
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList();
+    final ids = fees.map((row) => '${row['index']}').toSet();
+    for (final id in _feeFields.keys.toList()) {
+      if (!ids.contains(id)) _feeFields.remove(id)?.dispose();
+    }
+    for (final row in fees) {
+      final id = '${row['index']}';
+      final previous = _itemFees.where((fee) => '${fee['index']}' == id);
+      if (previous.isNotEmpty && previous.first['name'] != row['name']) {
+        _feeFields[id]?.text = '0';
+      }
+      _feeFields.putIfAbsent(id, () => TextEditingController(text: '0'));
+    }
+    _itemFees = fees;
+  }
+
+  bool _chairFee(Map<String, dynamic> fee) => const [
+    'chair',
+    'chairs',
+    'chair rental',
+  ].contains('${fee['name']}'.trim().toLowerCase());
+
+  Widget _feeQuantity(Map<String, dynamic> fee) => Padding(
+    padding: const EdgeInsets.only(top: 10, bottom: 8),
+    child: TextFormField(
+      key: ValueKey('booking-fee-${fee['index']}'),
+      controller: _feeFields['${fee['index']}'],
+      keyboardType: TextInputType.number,
+      style: const TextStyle(fontSize: 14, color: bookingNavy),
+      decoration: InputDecoration(
+        labelText: '${fee['name']} quantity',
+        helperText:
+            '${bookingMoney(fee['unit_amount'])} per item; enter 0 if not needed.',
+        helperMaxLines: 2,
+      ),
+      validator: (value) {
+        final count = int.tryParse(value?.trim() ?? '') ?? -1;
+        if (count < 0 || count > 100000) {
+          return 'Enter a whole number from 0 to 100000.';
+        }
+        if (_chairFee(fee) && _requirements.contains('Chairs') && count == 0) {
+          return 'Enter the number of chairs required.';
+        }
+        return null;
+      },
+      onChanged: (value) {
+        if (_chairFee(fee) && (int.tryParse(value) ?? 0) > 0) {
+          setState(() => _requirements.add('Chairs'));
+        }
+      },
+    ),
+  );
 
   Widget _field(
     String key,
@@ -708,7 +944,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         child: ListView(
           controller: _scroll,
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
           children: [
             BookingSteps(
               _step,
@@ -751,6 +987,16 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                     ],
                   ),
                 ),
+              ),
+            if (_submittedPayload != null && _step == 2)
+              TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        FacilityBookingHistoryScreen(service: widget.service),
+                  ),
+                ),
+                child: const Text('Check My Bookings'),
               ),
             if (_step == 0) ...[
               const Text(
@@ -862,9 +1108,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                   ),
                 ),
               const SizedBox(height: 24),
-              const Text(
-                'Available Time Slots',
-                style: TextStyle(
+              Text(
+                _hasCustomHours ? 'Available Hours' : 'Available Time Slots',
+                style: const TextStyle(
                   fontFamily: scheduleFont,
                   fontVariations: [FontVariation('wght', 600)],
                   fontSize: 15,
@@ -888,10 +1134,26 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                   color: bookingMuted,
                 ),
               ),
+              if (_date != null &&
+                  !_loading &&
+                  _slots.any(FacilityBookingService.isAvailableSlot) &&
+                  _slots.any((s) => !FacilityBookingService.isAvailableSlot(s)))
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Remaining available hours for this date.',
+                    style: TextStyle(
+                      fontFamily: scheduleFont,
+                      fontVariations: [FontVariation('wght', 400)],
+                      fontSize: 11,
+                      color: bookingMuted,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 14),
               if (_loading)
                 const Center(child: CircularProgressIndicator())
-              else if (_error != null && _date != null)
+              else if (_error != null && _date != null && _slots.isEmpty)
                 BookingButton(
                   label: 'Retry Schedule',
                   outlined: true,
@@ -911,6 +1173,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                 ..._slots.where(FacilityBookingService.isAvailableSlot).map((
                   slot,
                 ) {
+                  final isCustom = slot['time_selection'] == 'custom';
                   final selected = _window == slot || _slot == slot;
                   final available = FacilityBookingService.isAvailableSlot(
                     slot,
@@ -920,8 +1183,18 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                     child: OutlinedButton(
                       onPressed: available && !_busy
                           ? () => setState(() {
-                              _slot = slot;
                               _window = slot;
+                              if (isCustom) {
+                                _customStart = '${slot['start']}';
+                                _customEnd = '${slot['end']}';
+                                _hasExplicitTimeSelection = false;
+                                _slot = null;
+                              } else {
+                                _slot = slot;
+                                _customStart = null;
+                                _customEnd = null;
+                                _hasExplicitTimeSelection = false;
+                              }
                               _quote = null;
                               _error = null;
                             })
@@ -943,16 +1216,53 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                       ),
                       child: Row(
                         children: [
+                          if (isCustom) ...[
+                            const Icon(
+                              Icons.access_time_rounded,
+                              size: 18,
+                              color: bookingNavy,
+                            ),
+                            const SizedBox(width: 10),
+                          ],
                           Expanded(
-                            child: Text(
-                              '${slot['label']}',
-                              style: TextStyle(
-                                fontFamily: scheduleFont,
-                                fontVariations: [FontVariation('wght', 500)],
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: available ? bookingNavy : bookingMuted,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${slot['label']}',
+                                  style: TextStyle(
+                                    fontFamily: scheduleFont,
+                                    fontVariations: [
+                                      FontVariation(
+                                        'wght',
+                                        isCustom ? 600 : 500,
+                                      ),
+                                    ],
+                                    fontSize: 13,
+                                    fontWeight: isCustom
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                    color: available
+                                        ? bookingNavy
+                                        : bookingMuted,
+                                  ),
+                                ),
+                                if (isCustom) ...[
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Available booking window',
+                                    style: TextStyle(
+                                      fontFamily: scheduleFont,
+                                      fontVariations: [
+                                        FontVariation('wght', 400),
+                                      ],
+                                      fontSize: 11,
+                                      color: bookingMuted,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -983,8 +1293,10 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                     ),
                   );
                 }),
-              if (_slot != null && _window?['time_selection'] == 'custom')
+              if (_date != null && _window?['time_selection'] == 'custom')
                 _timeChoices(),
+              if (_date != null && _slot != null && _error == null)
+                _selectionSummary(),
             ],
             if (_step == 1)
               Form(
@@ -1061,6 +1373,13 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                                   _requirements.add(label);
                                 } else {
                                   _requirements.remove(label);
+                                  if (label == 'Chairs') {
+                                    for (final fee in _itemFees.where(
+                                      _chairFee,
+                                    )) {
+                                      _feeFields['${fee['index']}']?.text = '0';
+                                    }
+                                  }
                                 }
                               }),
                             ),
@@ -1070,9 +1389,10 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                               'Please specify',
                               required: false,
                             ),
+                          for (final fee in _itemFees) _feeQuantity(fee),
                           const SizedBox(height: 4),
                           const Text(
-                            'Additional requirements are subject to availability and a separate quote.',
+                            'Configured charges are included in the estimate. Other requirements may need an admin quote.',
                             style: TextStyle(fontSize: 12, color: bookingMuted),
                           ),
                         ],
@@ -1233,14 +1553,56 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                       ),
                       const SizedBox(height: 6),
                       BookingValue(
-                        'Base Rental Fee (${_quote!['hours']} hours)',
-                        bookingMoney(_quote!['base_amount']),
-                      ),
-                      if (_requirements.isNotEmpty)
-                        const BookingValue(
-                          'Additional Requirements',
-                          'Subject to admin quotation',
+                        _quote!.containsKey('base_rental_amount')
+                            ? 'Base Rental Fee'
+                            : 'Base Rental Fee (${_quote!['hours']} hours)',
+                        bookingMoney(
+                          _quote!['base_rental_amount'] ??
+                              _quote!['base_amount'],
                         ),
+                      ),
+                      if ((num.tryParse(
+                                '${_quote!['additional_hour_amount']}',
+                              ) ??
+                              0) >
+                          0)
+                        BookingValue(
+                          'Additional-hour charges',
+                          bookingMoney(_quote!['additional_hour_amount']),
+                        ),
+                      if ((num.tryParse('${_quote!['discount_amount']}') ?? 0) >
+                          0)
+                        BookingValue(
+                          '${_quote!['discount_label'] ?? 'Eligible discount'}',
+                          '-${bookingMoney(_quote!['discount_amount'])}',
+                        ),
+                      for (final fee in (_quote!['fees'] as List? ?? const []))
+                        if ((num.tryParse('${fee['quantity']}') ?? 0) > 0)
+                          BookingValue(
+                            '${fee['name']} (${fee['quantity']})',
+                            bookingMoney(fee['amount']),
+                          ),
+                      if ((num.tryParse('${_quote!['deposit_amount']}') ?? 0) >
+                          0)
+                        BookingValue(
+                          'Refundable damage deposit',
+                          bookingMoney(_quote!['deposit_amount']),
+                        ),
+                      for (final note in [
+                        'discount_note',
+                        'additional_requirements_note',
+                      ])
+                        if ('${_quote![note] ?? ''}'.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(
+                              '${_quote![note]}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: bookingMuted,
+                              ),
+                            ),
+                          ),
                       const Divider(color: bookingOutline),
                       BookingValue(
                         'Total Amount',
@@ -1315,8 +1677,11 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 7),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
                         children: [
                           const Text(
                             'Status',

@@ -104,18 +104,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildInlineError(String message) {
     return Padding(
       padding: const EdgeInsets.only(top: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 16),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: Color(0xFFEF4444), fontSize: 11),
-            ),
-          ),
-        ],
+      child: Text(
+        message,
+        style: const TextStyle(color: Color(0xFFEF4444), fontSize: 11),
       ),
     );
   }

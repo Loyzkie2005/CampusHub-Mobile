@@ -63,7 +63,11 @@ class FoodPreferencesService {
           'Your session changed. Reopen Preferences.',
         );
       }
-      await SessionService.updateUser(user);
+      if (!await SessionService.updateUser(user, expectedToken: token)) {
+        throw const FoodPreferenceException(
+          'Your session changed. Reopen Preferences.',
+        );
+      }
       return FoodPreferenceState(
         user,
         (data['categories'] as List)

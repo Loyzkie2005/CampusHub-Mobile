@@ -27,14 +27,11 @@ class _StartupGateState extends State<StartupGate> {
   /// Determines login / dashboard / profile-setup and stores result.
   /// If the splash already finished, navigates immediately.
   Future<void> _resolveDestination() async {
-    final loggedIn = await SessionService.isLoggedIn();
-    final user = loggedIn ? await SessionService.loadUser() : null;
+    final user = await SessionService.restoreUser();
 
     if (!mounted) return;
 
-    final route = (!loggedIn || user == null)
-        ? AppRoutes.login
-        : AppRoutes.forUser(user);
+    final route = user == null ? AppRoutes.login : AppRoutes.forUser(user);
 
     _destinationRoute = route;
 

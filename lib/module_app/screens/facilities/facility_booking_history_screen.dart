@@ -15,16 +15,34 @@ class FacilityBookingHistoryScreen extends StatefulWidget {
 }
 
 class _FacilityBookingHistoryScreenState
-    extends State<FacilityBookingHistoryScreen> {
+    extends State<FacilityBookingHistoryScreen>
+    with WidgetsBindingObserver {
   late Future<Map<String, dynamic>> _future;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _future = widget.service.request('bookings/');
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        (ModalRoute.of(context)?.isCurrent ?? true)) {
+      _refresh();
+    }
+  }
+
   Future<void> _refresh() async {
-    setState(() => _future = widget.service.request('bookings/'));
+    setState(() {
+      _future = widget.service.request('bookings/');
+    });
     try {
       await _future;
     } catch (_) {

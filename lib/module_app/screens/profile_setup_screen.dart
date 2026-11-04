@@ -187,8 +187,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       return;
     }
 
-    await SessionService.updateUser(user, chatToken: result.chatToken);
+    final saved = await SessionService.updateUser(
+      user,
+      chatToken: result.chatToken,
+      expectedToken: token,
+    );
     if (!mounted) return;
+    if (!saved) {
+      setState(() {
+        _submitting = false;
+        _error = 'Your session changed. Please log in again.';
+      });
+      return;
+    }
     if (widget.editingUser != null) {
       Navigator.of(context).pop(user);
       return;

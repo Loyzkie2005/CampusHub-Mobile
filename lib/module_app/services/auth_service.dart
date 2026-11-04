@@ -117,6 +117,52 @@ class AuthService {
 
   static List<String> get _baseUrls => ApiConfig.mobileApiUrls;
 
+  /// Read the account authenticated by the saved bearer; never trust a cached
+  /// profile alone. The existing profile GET performs Django's token checks.
+  static Future<({AuthUser? user, bool rejected, String? baseUrl})>
+  restoreSession(String token) async {
+    final elapsed = Stopwatch()..start();
+    for (final baseUrl in _baseUrls) {
+      final remaining = const Duration(seconds: 10) - elapsed.elapsed;
+      if (remaining <= Duration.zero) break;
+      try {
+        final response = await http
+            .get(
+              Uri.parse('$baseUrl/profile/photo/'),
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $token',
+              },
+            )
+            .timeout(
+              remaining < const Duration(seconds: 3)
+                  ? remaining
+                  : const Duration(seconds: 3),
+            );
+        // An authenticated server's denial is final, not a reason to try a
+        // different server with the same account's credentials.
+        final data = _decodeJson(response.body);
+        if (const [401, 403].contains(response.statusCode) ||
+            (response.statusCode == 404 &&
+                data['error'] == 'User account not found.')) {
+          return (user: null, rejected: true, baseUrl: null);
+        }
+        if (response.statusCode != 200) continue;
+        if (data['user'] is! Map<String, dynamic>) continue;
+        final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
+        if (user.id <= 0) continue;
+        return (
+          user: user,
+          rejected: false,
+          baseUrl: baseUrl.replaceFirst(RegExp(r'/api/mobile/?$'), ''),
+        );
+      } catch (_) {
+        // Connectivity/invalid responses cannot authenticate cached data.
+      }
+    }
+    return (user: null, rejected: false, baseUrl: null);
+  }
+
   static Future<AuthResult> login({
     required String studentIdOrEmail,
     required String password,

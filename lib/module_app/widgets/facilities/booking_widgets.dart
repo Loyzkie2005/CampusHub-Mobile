@@ -316,7 +316,6 @@ class BookingScaffold extends StatelessWidget {
           actions: actions,
         ),
         body: SafeArea(
-          top: false,
           child: Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
@@ -509,12 +508,13 @@ class BookingSteps extends StatelessWidget {
   final String fontFamily;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 6, bottom: 18),
+    padding: const EdgeInsets.only(top: 10, bottom: 18),
     child: Row(
       children: List.generate(
         4,
         (index) => Expanded(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -563,16 +563,25 @@ class BookingSteps extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                ['Schedule', 'Details', 'Review', 'Submit'][index],
-                style: TextStyle(
-                  fontFamily: fontFamily,
-                  fontSize: 11,
-                  fontWeight: index == step ? FontWeight.w700 : FontWeight.w500,
-                  fontVariations: fontFamily == 'Montserrat'
-                      ? [FontVariation('wght', index == step ? 700 : 500)]
-                      : null,
-                  color: index <= step ? bookingNavy : bookingMuted,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    ['Schedule', 'Details', 'Review', 'Submit'][index],
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: fontFamily,
+                      fontSize: 11,
+                      fontWeight:
+                          index == step ? FontWeight.w700 : FontWeight.w500,
+                      fontVariations: fontFamily == 'Montserrat'
+                          ? [FontVariation('wght', index == step ? 700 : 500)]
+                          : null,
+                      color: index <= step ? bookingNavy : bookingMuted,
+                    ),
+                  ),
                 ),
               ),
             ],

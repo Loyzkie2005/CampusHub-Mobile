@@ -7,8 +7,14 @@ import '../config/api_config.dart';
 import '../session/session_service.dart';
 
 class BookingException implements Exception {
-  const BookingException(this.message);
+  const BookingException(
+    this.message, {
+    this.statusCode,
+    this.uncertain = false,
+  });
   final String message;
+  final int? statusCode;
+  final bool uncertain;
   @override
   String toString() => message;
 }
@@ -48,14 +54,20 @@ class FacilityBookingService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw BookingException(
           decoded['error']?.toString() ?? 'Unable to complete the request.',
+          statusCode: response.statusCode,
+          uncertain:
+              body != null && path == 'bookings/' && response.statusCode >= 500,
         );
       }
       return decoded;
     } on BookingException {
       rethrow;
     } catch (_) {
-      throw const BookingException(
-        'Unable to connect. Check your connection and try again.',
+      throw BookingException(
+        body != null && path == 'bookings/'
+            ? 'Unable to confirm submission. Retry this request to check whether it was saved.'
+            : 'Unable to connect. Check your connection and try again.',
+        uncertain: body != null && path == 'bookings/',
       );
     }
   }

@@ -203,4 +203,31 @@ void main() {
       );
     }
   }
+
+  testWidgets(
+    'login inline error message renders text without error_outline icon',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.first, 'invalid_user');
+      await tester.enterText(fields.last, 'wrong_password');
+
+      final loginButton = find.widgetWithText(FilledButton, 'Log In');
+      await tester.ensureVisible(loginButton);
+      await tester.tap(loginButton);
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.error_outline), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.style?.color == const Color(0xFFEF4444) &&
+              (widget.data?.isNotEmpty ?? false),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 }
