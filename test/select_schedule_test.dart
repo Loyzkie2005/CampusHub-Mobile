@@ -109,6 +109,52 @@ class CustomCalendarService extends CalendarService {
   }
 }
 
+class ClientDaysCalendarService extends CalendarService {
+  @override
+  Future<List<Map<String, dynamic>>> slots(
+    String facilityId,
+    DateTime date,
+  ) async => [
+    {
+      'start': '08:00', 'end': '17:00', 'label': '8:00 AM - 5:00 PM',
+      // Django can return campus hours without making them client-bookable.
+      'status': 'available',
+      'time_selection': 'custom', 'minimum_duration_minutes': 240,
+    },
+  ];
+}
+
+class ChangingClassCalendarService extends CalendarService {
+  bool classActive = false;
+
+  @override
+  Future<List<Map<String, dynamic>>> slots(String facilityId, DateTime date) async {
+    Map<String, dynamic> row(String start, String end, String status) => {
+      'start': start, 'end': end,
+      'label': '${bookingTime(start)} - ${bookingTime(end)}',
+      'status': status, 'time_selection': 'custom', 'minimum_duration_minutes': 240,
+    };
+    return classActive
+        ? [row('08:00', '10:00', 'unavailable'), row('10:00', '13:00', 'class'), row('13:00', '17:00', 'available')]
+        : [row('08:00', '17:00', 'available')];
+  }
+}
+
+class ChangingOperatingCalendarService extends CalendarService {
+  bool weekends = false;
+  @override
+  Future<List<Map<String, dynamic>>> slots(String facilityId, DateTime date) async =>
+      (date.weekday >= DateTime.saturday) == weekends
+          ? [{
+              'start': weekends ? '13:00' : '08:00', 'end': '17:00',
+              'label': weekends ? '1:00 PM - 5:00 PM' : '8:00 AM - 5:00 PM',
+              'status': 'available', 'time_selection': 'custom',
+              'minimum_duration_minutes': 240,
+            }]
+          : [];
+}
+
+
 Future<void> openSchedule(
   WidgetTester tester,
   FacilityBookingService service, {
@@ -155,6 +201,8 @@ Future<void> openSchedule(
 
 Finder nextButton() =>
     find.widgetWithText(ElevatedButton, 'Next: Booking Details');
+Finder selectedSlotDot() =>
+    find.byKey(const ValueKey('available-hours-inner-dot'));
 DateTime nextMonth() {
   final now = DateTime.now();
   return DateTime(now.year, now.month + 1);
@@ -201,6 +249,209 @@ Future<void> screenshot(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('changing dates never selects the sole available hours automatically', (tester) async {
+    final service = ChangingClassCalendarService();
+    final capture = GlobalKey();
+    await openSchedule(tester, service, capture: capture);
+    expect(selectedSlotDot(), findsNothing);
+    expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    await tester.tap(find.byKey(const ValueKey('schedule-next-month')));
+    await tester.pumpAndSettle();
+    final month = nextMonth();
+    await tester.tap(day(month));
+    await tester.pumpAndSettle();
+    final period = find.text('8:00 AM - 5:00 PM');
+    await reach(tester, period);
+    expect(selectedSlotDot(), findsNothing);
+    expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
+    await tester.tap(period);
+    await tester.pumpAndSettle();
+    expect(selectedSlotDot(), findsOneWidget);
+    expect(find.byKey(const ValueKey('booking-start-time')), findsOneWidget);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    final end = find.byKey(const ValueKey('booking-end-time'));
+    await reach(tester, end);
+    await tester.tap(end);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('booking-time-ok')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNotNull);
+    await reach(tester, day(month.add(const Duration(days: 1))), delta: 220);
+    await tester.tap(day(month.add(const Duration(days: 1))));
+    await tester.pumpAndSettle();
+    await reach(tester, find.text('8:00 AM - 5:00 PM'));
+    expect(selectedSlotDot(), findsNothing);
+    expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
+    expect(find.byKey(const ValueKey('booking-end-time')), findsNothing);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    expect(service.submissions, 0);
+    await screenshot(tester, capture, 'hours-after-date-change');
+  });
+
+  for (final category in ['covered_court', 'function_hall', 'hostel', 'other']) {
+    testWidgets('$category reloads operating days and hours despite old client-day flags', (tester) async {
+      final service = ChangingOperatingCalendarService();
+      final facility = FacilityItem.fromJson({
+        'id': 'OPERATING-$category', 'name': category, 'facility_type': category,
+        'booking_mode': 'slot', 'status': 'available',
+        'workflow_config': {'weekend_only': true, 'allowed_booking_days': []},
+      });
+      final capture = GlobalKey();
+      await openSchedule(tester, service, facility: facility, width: 320, capture: capture);
+      expect(find.text('Weekend bookings only. Choose an available date.'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('schedule-next-month')));
+      await tester.pumpAndSettle();
+      final month = nextMonth();
+      final monday = month.add(Duration(days: (DateTime.monday - month.weekday + 7) % 7));
+      final saturday = month.add(Duration(days: (DateTime.saturday - month.weekday + 7) % 7));
+      expect(tester.widget<InkResponse>(day(monday)).onTap, isNotNull);
+      expect(tester.widget<InkResponse>(day(saturday)).onTap, isNull);
+      await tester.tap(day(monday));
+      await tester.pumpAndSettle();
+      service.weekends = true;
+      await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+      await tester.pumpAndSettle();
+      expect(tester.widget<InkResponse>(day(monday)).onTap, isNull);
+      expect(tester.widget<InkResponse>(day(saturday)).onTap, isNotNull);
+      expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+      await tester.tap(day(saturday));
+      await tester.pumpAndSettle();
+      final period = find.text('1:00 PM - 5:00 PM');
+      await reach(tester, period);
+      expect(selectedSlotDot(), findsNothing);
+      expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
+      await tester.tap(period);
+      await tester.pumpAndSettle();
+      final start = find.byKey(const ValueKey('booking-start-time'));
+      await reach(tester, start);
+      expect(find.descendant(of: start, matching: find.text('1:00 PM')), findsOneWidget);
+      expect(service.submissions, 0);
+      expect(tester.takeException(), isNull);
+      if (category == 'covered_court') await screenshot(tester, capture, 'operating-days-refresh-320');
+    });
+  }
+
+  testWidgets('refresh replaces changed hours without automatically choosing a window', (tester) async {
+    final service = ChangingClassCalendarService();
+    await openSchedule(tester, service);
+    final period = find.text('8:00 AM - 5:00 PM');
+    await reach(tester, period);
+    expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
+    await tester.tap(period);
+    await tester.pumpAndSettle();
+    final start = find.byKey(const ValueKey('booking-start-time'));
+    await reach(tester, start);
+    Finder startText(String value) => find.descendant(of: start, matching: find.text(value));
+    expect(startText('8:00 AM'), findsOneWidget);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    service.classActive = true;
+    await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await tester.pumpAndSettle();
+    final revised = find.text('1:00 PM - 5:00 PM');
+    await reach(tester, revised);
+    expect(selectedSlotDot(), findsNothing);
+    expect(start, findsNothing);
+    await tester.tap(revised);
+    await tester.pumpAndSettle();
+    await reach(tester, start);
+    expect(startText('1:00 PM'), findsOneWidget);
+    expect(find.text('Minimum booking duration: 4 hours.'), findsOneWidget);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    service.classActive = false;
+    await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await tester.pumpAndSettle();
+    await reach(tester, period);
+    expect(selectedSlotDot(), findsNothing);
+    expect(start, findsNothing);
+    expect(service.submissions, 0);
+  });
+
+  testWidgets('refresh preserves unfinished time entry when the server window is unchanged', (tester) async {
+    final service = ChangingClassCalendarService();
+    await openSchedule(tester, service);
+    final period = find.text('8:00 AM - 5:00 PM');
+    await reach(tester, period);
+    await tester.tap(period);
+    await tester.pumpAndSettle();
+    final end = find.byKey(const ValueKey('booking-end-time'));
+    await reach(tester, end);
+    await tester.tap(end);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AM'));
+    tester.widget<CupertinoPicker>(find.byKey(const ValueKey('booking-time-hour-wheel')))
+        .scrollController!.jumpToItem(9); // 10 AM: shorter than the four-hour minimum.
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('booking-time-ok')));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: end, matching: find.text('10:00 AM')), findsOneWidget);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await tester.pumpAndSettle();
+    await reach(tester, end);
+    expect(find.descendant(of: end, matching: find.text('10:00 AM')), findsOneWidget);
+    await reach(tester, find.text('Minimum booking duration is 4 hours.'), delta: -220);
+    expect(find.text('Minimum booking duration is 4 hours.'), findsOneWidget);
+    expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNull);
+    expect(service.submissions, 0);
+  });
+
+  testWidgets(
+    'stale client-day flags do not hide dates made available by Django',
+    (tester) async {
+      final facility = FacilityItem.fromJson({
+        'id': 'CAMPUS-CLIENT-DAYS',
+        'name': 'Covered Court',
+        'facility_type': 'covered_court',
+        'booking_mode': 'slot',
+        'status': 'available',
+        'workflow_config': {
+          'weekend_only': true,
+          'allowed_booking_days': ['sunday'],
+          'operating_hours': {
+            for (final day in [
+              'monday',
+              'tuesday',
+              'wednesday',
+              'thursday',
+              'friday',
+              'saturday',
+              'sunday',
+            ])
+              day: {'open': '08:00', 'close': '17:00'},
+          },
+        },
+      });
+      await openSchedule(
+        tester,
+        ClientDaysCalendarService(),
+        facility: facility,
+      );
+      await tester.tap(find.byKey(const ValueKey('schedule-next-month')));
+      await tester.pumpAndSettle();
+      final month = nextMonth();
+      for (final weekday in [
+        DateTime.monday,
+        DateTime.saturday,
+        DateTime.sunday,
+      ]) {
+        final date = month.add(
+          Duration(days: (weekday - month.weekday + 7) % 7),
+        );
+        final cell = tester.widget<InkResponse>(day(date));
+        expect(cell.onTap, isNotNull);
+      }
+      final sunday = month.add(
+        Duration(days: (DateTime.sunday - month.weekday + 7) % 7),
+      );
+      await tester.tap(day(sunday));
+      await tester.pumpAndSettle();
+      await reach(tester, find.text('Available Hours'));
+      expect(find.text('8:00 AM - 5:00 PM'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final hour in [0, 12, 1, 13]) {
     testWidgets('AM/PM wheel preserves and converts hour $hour', (
       tester,
@@ -211,8 +462,11 @@ void main() {
           home: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                picked = await showDialog<TimeOfDay>(
+                picked = await showModalBottomSheet<TimeOfDay>(
                   context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  backgroundColor: Colors.transparent,
                   builder: (_) => BookingTimeDialog(
                     title: 'Start Time',
                     initialTime: TimeOfDay(hour: hour, minute: 7),
@@ -232,14 +486,10 @@ void main() {
       expect(hourWheel.scrollController!.selectedItem, (hour + 11) % 12);
       expect(find.text('Start Time'), findsOneWidget);
       expect(find.textContaining(RegExp(r'(12|24).?hour')), findsNothing);
-      expect(
-        tester
-            .widget<SegmentedButton<DayPeriod>>(
-              find.byKey(const ValueKey('booking-time-period')),
-            )
-            .selected,
-        {hour < 12 ? DayPeriod.am : DayPeriod.pm},
+      final periodWheel = tester.widget<CupertinoPicker>(
+        find.byKey(const ValueKey('booking-time-period')),
       );
+      expect(periodWheel.scrollController!.selectedItem, hour < 12 ? 0 : 1);
       await tester.tap(find.byKey(const ValueKey('booking-time-ok')));
       await tester.pumpAndSettle();
       expect(picked, TimeOfDay(hour: hour, minute: 7));
@@ -481,18 +731,64 @@ void main() {
           await reach(tester, button);
           await tester.tap(button);
           await tester.pumpAndSettle();
-          expect(find.byType(BottomSheet), findsNothing);
-          final dialog = tester.getRect(
-            find
-                .descendant(
-                  of: find.byKey(const ValueKey('booking-time-dialog')),
-                  matching: find.byType(Material),
-                )
-                .first,
+          expect(find.byType(BottomSheet), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('booking-time-drag-handle')),
+            findsOneWidget,
           );
-          expect(dialog.left, greaterThanOrEqualTo(16));
-          expect(dialog.right, lessThanOrEqualTo(width - 16));
-          expect(dialog.bottom, lessThanOrEqualTo(height - 24));
+          expect(find.text('Confirm'), findsNothing);
+          expect(find.text('Remove'), findsNothing);
+          final sheet = tester.getRect(
+            find.byKey(const ValueKey('booking-time-dialog')),
+          );
+          expect(sheet.left, greaterThanOrEqualTo(0));
+          expect(sheet.right, lessThanOrEqualTo(width));
+          expect(sheet.top, greaterThanOrEqualTo(0));
+          expect(sheet.bottom, closeTo(height, 1.0));
+          final titleRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-title')),
+          );
+          expect(titleRect.center.dx, closeTo(sheet.center.dx, 1.0));
+          final hourWheelRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-hour-wheel')),
+          );
+          final minuteWheelRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-minute-wheel')),
+          );
+          final periodRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-period')),
+          );
+          expect(hourWheelRect.top, closeTo(minuteWheelRect.top, 0.5));
+          expect(minuteWheelRect.top, closeTo(periodRect.top, 0.5));
+          expect(hourWheelRect.right, lessThanOrEqualTo(minuteWheelRect.left));
+          expect(minuteWheelRect.right, lessThanOrEqualTo(periodRect.left));
+          for (final selectionKey in [
+            'booking-time-hour-selection',
+            'booking-time-minute-selection',
+            'booking-time-period-selection',
+          ]) {
+            final selectionFinder = find.byKey(ValueKey(selectionKey));
+            expect(selectionFinder, findsOneWidget);
+            expect(
+              tester.getCenter(selectionFinder).dy,
+              closeTo(hourWheelRect.center.dy, 0.5),
+            );
+          }
+          final amFinder = find.byKey(const ValueKey('booking-time-am'));
+          final pmFinder = find.byKey(const ValueKey('booking-time-pm'));
+          expect(amFinder, findsOneWidget);
+          expect(pmFinder, findsOneWidget);
+          final amStyle = tester.widget<Text>(amFinder).style!;
+          final pmStyle = tester.widget<Text>(pmFinder).style!;
+          expect({amStyle.fontWeight, pmStyle.fontWeight}, {FontWeight.w600, FontWeight.w500});
+          final cancelRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-cancel')),
+          );
+          final okRect = tester.getRect(
+            find.byKey(const ValueKey('booking-time-ok')),
+          );
+          expect(cancelRect.top, closeTo(okRect.top, 0.5));
+          expect(cancelRect.right, lessThan(okRect.left));
           tester
               .widget<CupertinoPicker>(
                 find.byKey(const ValueKey('booking-time-hour-wheel')),
@@ -650,7 +946,7 @@ void main() {
             capture: capture,
           );
           expect(
-            find.text('Weekend bookings only. Choose an available date.'),
+            find.text('Choose an available date for your booking.'),
             findsOneWidget,
           );
           final calendar = tester.widget<BookingScheduleCalendar>(
@@ -995,7 +1291,7 @@ void main() {
       );
       expect(row.style!.side!.resolve({})!.color, bookingNavy);
       expect(find.byKey(const ValueKey('booking-start-time')), findsNothing);
-      expect(find.byIcon(Icons.check_circle_outline_rounded), findsOneWidget);
+      expect(selectedSlotDot(), findsOneWidget);
       expect(tester.widget<ElevatedButton>(nextButton()).onPressed, isNotNull);
       await screenshot(tester, capture, 'selected-slot-$width-$scale');
       // Month navigation clears both selections, including on return.
@@ -1257,7 +1553,7 @@ void main() {
       await reach(tester, endBtn);
       await tester.tap(endBtn);
       await tester.pumpAndSettle();
-      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(BottomSheet), findsOneWidget);
       expect(
         tester
             .widget<CupertinoPicker>(

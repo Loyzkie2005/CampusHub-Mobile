@@ -132,6 +132,7 @@ void main() {
     final resource = FacilityItem.fromJson({
       'id': 'TEST-OTHER',
       'name': 'Covered Court name without a mapping',
+      'status': 'available',
       'facility_type': 'other',
       'booking_mode': 'slot',
       'capacity': 50,

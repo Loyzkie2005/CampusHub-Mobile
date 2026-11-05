@@ -284,7 +284,7 @@ void main() {
   }
 
   for (final (width, scale) in [(280.0, 2.0), (390.0, 1.0), (768.0, 1.0)]) {
-    testWidgets('seller banner follows Inventory Alerts at $width / $scale', (
+    testWidgets('seller banner follows Sales Trend at $width / $scale', (
       tester,
     ) async {
       tester.view.physicalSize = Size(width, 844);
@@ -310,18 +310,23 @@ void main() {
       final banner = find.byKey(const ValueKey('home-campus-banners'));
       final inventory = find.text('Inventory Alerts');
       final suggestions = find.text('Suggested Product Bundles');
+      final salesTrend = find.text('Sales Trend');
       expect(banner, findsOneWidget);
       expect(
         find.descendant(of: find.byType(SellerDashboardPage), matching: banner),
         findsOneWidget,
       );
       expect(
-        tester.getRect(banner).top,
+        tester.getRect(suggestions).top,
         greaterThan(tester.getRect(inventory).bottom),
       );
       expect(
-        tester.getRect(banner).bottom,
-        lessThanOrEqualTo(tester.getRect(suggestions).top),
+        tester.getRect(salesTrend).top,
+        greaterThan(tester.getRect(suggestions).bottom),
+      );
+      expect(
+        tester.getRect(banner).top,
+        greaterThan(tester.getRect(salesTrend).bottom),
       );
       await Scrollable.ensureVisible(tester.element(banner), alignment: .5);
       await tester.pumpAndSettle();

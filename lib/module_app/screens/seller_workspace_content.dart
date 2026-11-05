@@ -27,6 +27,7 @@ class SellerWorkspaceContent extends StatefulWidget {
     this.homeHighlightsOnly = false,
     this.productSearchOpen = false,
     this.onOrderProgress,
+    this.afterSalesTrend,
     this.afterInventoryAlerts,
   });
   final SellerDestination destination;
@@ -40,6 +41,7 @@ class SellerWorkspaceContent extends StatefulWidget {
   final bool homeHighlightsOnly;
   final bool productSearchOpen;
   final Future<void> Function(int, String)? onOrderProgress;
+  final Widget? afterSalesTrend;
   final Widget? afterInventoryAlerts;
 
   @override
@@ -48,6 +50,8 @@ class SellerWorkspaceContent extends StatefulWidget {
 
 class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
   bool _savingDelivery = false;
+  Widget? get _banner =>
+      widget.afterSalesTrend ?? widget.afterInventoryAlerts;
   bool? _savedDelivery;
 
   Future<void> _setDelivery(bool enabled) async {
@@ -1709,10 +1713,6 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       identity: true,
     ),
     ...inventory(attention: true),
-    if (widget.afterInventoryAlerts != null) ...[
-      const SizedBox(height: 16),
-      widget.afterInventoryAlerts!,
-    ],
     sectionHeader(
       'Suggested Product Bundles',
       SellerDestination.recommendations,
@@ -1725,6 +1725,10 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
         trend: analytics['trend'] is Map ? analytics['trend'] as Map : const {},
       ),
     ),
+    if (_banner != null) ...[
+      const SizedBox(height: 16),
+      _banner!,
+    ],
   ];
 
   Widget _overviewMetricCard(

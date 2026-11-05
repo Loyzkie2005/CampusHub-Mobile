@@ -233,7 +233,7 @@ void main() {
     expect(find.text('Open for Booking'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('facility-availability-card')),
+        of: find.byKey(const ValueKey('facility-main-info-card')),
         matching: find.byKey(const ValueKey('facility-status-badge')),
       ),
       findsOneWidget,
@@ -336,40 +336,105 @@ void main() {
     },
   );
 
-  testWidgets('weekend-only card uses saved hours and honest day states', (
-    tester,
-  ) async {
-    final data = detailFixture();
-    (data['workflow_config'] as Map)['weekend_only'] = true;
-    (data['workflow_config'] as Map)['operating_hours'] = {
-      'saturday': {'open': '08:00', 'close': '17:00'},
-      'sunday': {'open': '08:00', 'close': '17:00'},
-    };
-    final information = FacilityDetailInformation(FacilityItem.fromJson(data));
-    expect(
-      information.operatingDays
-          .take(5)
-          .every((day) => day.isOpen == false && day.value == 'Unavailable'),
-      isTrue,
-    );
-    expect(
-      information.operatingDays.skip(5).every((day) => day.isOpen == true),
-      isTrue,
-    );
-    await show(tester, data: data);
-    await tester.pumpAndSettle();
-    await scrollTo(
-      tester,
-      find.byKey(const ValueKey('facility-availability-card')),
-    );
-    expect(find.text('Weekend Only'), findsOneWidget);
-    expect(find.text('Monday – Friday'), findsOneWidget);
-    expect(find.text('Unavailable'), findsOneWidget);
-    expect(find.text('Saturday'), findsOneWidget);
-    expect(find.text('Sunday'), findsOneWidget);
-    expect(find.text('8:00 AM – 5:00 PM'), findsNWidgets(2));
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'legacy weekend flag does not override actual operating day states',
+    (tester) async {
+      final data = detailFixture();
+      final capture = GlobalKey();
+      final output = Platform.environment['OPERATING_BOOKING_REVIEW_DIR'];
+      if (output != null) {
+        await tester.runAsync(() async {
+          await (FontLoader('Inter')..addFont(
+                rootBundle.load('assets/fonts/inter/InterVariable.ttf'),
+              ))
+              .load();
+          await (FontLoader('Montserrat')..addFont(
+                rootBundle.load(
+                  'assets/fonts/Montserrat-VariableFont_wght.ttf',
+                ),
+              ))
+              .load();
+          await (FontLoader('Poppins')..addFont(
+                rootBundle.load('assets/fonts/poppins/Poppins-Regular.ttf'),
+              ))
+              .load();
+          await (FontLoader('MaterialIcons')
+                ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf')))
+              .load();
+        });
+      }
+      (data['workflow_config'] as Map)['weekend_only'] = true;
+      (data['workflow_config'] as Map)['operating_hours'] = {
+        'monday': {'open': '09:00', 'close': '16:00'},
+        'tuesday': null,
+        'wednesday': null,
+        'thursday': null,
+        'friday': null,
+        'saturday': {'open': '08:00', 'close': '17:00'},
+        'sunday': {'open': '08:00', 'close': '17:00'},
+      };
+      final information = FacilityDetailInformation(
+        FacilityItem.fromJson(data),
+      );
+      expect(information.operatingDays.first.isOpen, isTrue);
+      expect(
+        information.operatingDays.skip(5).every((day) => day.isOpen == true),
+        isTrue,
+      );
+      await show(tester, data: data, capture: capture);
+      await tester.pumpAndSettle();
+      await scrollTo(
+        tester,
+        find.byKey(const ValueKey('facility-availability-card')),
+      );
+      expect(find.text('Weekend bookings'), findsNothing);
+      expect(find.text('Monday'), findsOneWidget);
+      expect(find.text('Tuesday – Friday'), findsOneWidget);
+      expect(find.text('9:00 AM – 4:00 PM'), findsOneWidget);
+      expect(find.text('Saturday'), findsOneWidget);
+      expect(find.text('Sunday'), findsOneWidget);
+      expect(find.text('8:00 AM – 5:00 PM'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+      if (output != null) {
+        await tester.runAsync(() async {
+          final boundary =
+              capture.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 2);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          final file = File('$output/flutter-operating-days.png');
+          file.parent.createSync(recursive: true);
+          file.writeAsBytesSync(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+      }
+    },
+  );
+
+  test(
+    'retired client day restrictions are omitted from operating information',
+    () {
+      final data = detailFixture();
+      final config = data['workflow_config'] as Map;
+      config['weekend_only'] = true;
+      config['allowed_booking_days'] = ['monday', 'saturday', 'sunday'];
+      config['operating_hours'] = {
+        'monday': {'open': '08:00', 'close': '17:00'},
+        'saturday': {'open': '08:00', 'close': '17:00'},
+        'sunday': null,
+      };
+      final info = FacilityDetailInformation(FacilityItem.fromJson(data));
+      expect(info.operatingDays.first.isOpen, isTrue);
+      expect(
+        info.schedule.any(
+          (row) =>
+              row.label == 'Allowed booking days' ||
+              row.label == 'Client bookings',
+        ),
+        isFalse,
+      );
+    },
+  );
 
   test('unconfigured and invalid operating days never become open days', () {
     final data = detailFixture();
@@ -857,7 +922,7 @@ void main() {
     );
     expect(
       (activeDot.decoration! as BoxDecoration).color,
-      const Color(0xFFFCB315),
+      const Color(0xFFFCB316),
     );
     final inactiveDot = tester.widget<AnimatedContainer>(
       find.byKey(const ValueKey('facility-carousel-dot-1')),
@@ -1065,7 +1130,7 @@ void main() {
       );
       expect(
         request.style!.backgroundColor!.resolve({}),
-        const Color(0xFFFCB315),
+        const Color(0xFFFCB316),
       );
 
       await show(tester, data: data, highContrast: true);
@@ -1101,6 +1166,106 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('facility-rate-details')), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  for (final category in [
+    'covered_court',
+    'function_hall',
+    'hostel',
+    'food_analysis',
+    'training_kitchen',
+    'lease_space',
+    'other',
+  ]) {
+    testWidgets(
+      '$category uses only its saved labels and the shared amenity matcher',
+      (tester) async {
+        const names = [
+          '  eLeCtRiC_FaNs  ',
+          'Wireless Mic',
+          'Air quality monitor',
+        ];
+        await show(
+          tester,
+          data: {
+            ...detailFixture(),
+            'id': 'fixture-$category',
+            'facility_type': category,
+            'facility_type_label': 'Saved category $category',
+            'amenities': names,
+          },
+        );
+        await tester.pumpAndSettle();
+        final screen = tester.widget<FacilityDetailsScreen>(
+          find.byType(FacilityDetailsScreen),
+        );
+        expect(screen.facility.facilityType, category);
+        expect(screen.facility.facilityTypeLabel, 'Saved category $category');
+        expect(find.text('Saved category $category'), findsNothing);
+        expect(find.text('Fixture Covered Court'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('facility-status-badge')),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey('facility-request-booking-button')),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        expect(
+          find.byKey(const ValueKey('facility-chat-button')),
+          findsOneWidget,
+        );
+        final section = find.byKey(const ValueKey('facility-amenities-card'));
+        await scrollTo(tester, section);
+        for (final name in names) {
+          expect(
+            find.descendant(of: section, matching: find.text(name)),
+            findsOneWidget,
+          );
+        }
+        for (final icon in [
+          Icons.wind_power_outlined,
+          Icons.mic_none_outlined,
+          Icons.widgets_outlined,
+        ]) {
+          expect(
+            find.descendant(of: section, matching: find.byIcon(icon)),
+            findsOneWidget,
+          );
+        }
+        expect(
+          find.descendant(of: section, matching: find.text('Chairs')),
+          findsNothing,
+        );
+        expect(
+          tester.widget<Text>(find.text(names.first)).style!.fontFamily,
+          'Montserrat',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('empty amenities keep the existing omitted-section state', (
+    tester,
+  ) async {
+    for (final amenities in [
+      <String>[],
+      ['', '  '],
+    ]) {
+      await show(tester, data: {...detailFixture(), 'amenities': amenities});
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('facility-amenities-card')),
+        findsNothing,
+      );
+      expect(find.text('Features & Amenities'), findsNothing);
+      expect(tester.takeException(), isNull);
+    }
   });
 
   testWidgets('more than four saved amenities scroll horizontally', (
@@ -1155,6 +1320,7 @@ void main() {
         data: {
           ...detailFixture(),
           'images': [url, url],
+          'amenities': ['Fans', 'Stage', 'Sound System', 'Pickleball Net'],
         },
         width: width,
         height: height,

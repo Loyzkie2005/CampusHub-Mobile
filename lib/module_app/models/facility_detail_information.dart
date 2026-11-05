@@ -78,21 +78,15 @@ class FacilityDetailInformation {
         'Saturday',
         'Sunday',
       ])
-        if (config['weekend_only'] == true &&
-            label != 'Saturday' &&
-            label != 'Sunday')
-          (label: label, value: 'Unavailable', isOpen: false)
-        else
-          (
-            label: label,
-            value: saved[label] ?? 'Not configured',
-            isOpen: saved[label] == 'Closed'
-                ? false
-                : saved[label] == null ||
-                      saved[label] == 'Schedule needs review'
-                ? null
-                : true,
-          ),
+        (
+          label: label,
+          value: saved[label] ?? 'Not configured',
+          isOpen: saved[label] == 'Closed'
+              ? false
+              : saved[label] == null || saved[label] == 'Schedule needs review'
+              ? null
+              : true,
+        ),
     ];
   }
 
@@ -137,9 +131,6 @@ class FacilityDetailInformation {
       }
     } else if (_text(hours).isNotEmpty) {
       rows.add((label: 'Operating hours', value: _text(hours)));
-    }
-    if (config['weekend_only'] == true) {
-      rows.add((label: 'Restriction', value: 'Weekends only'));
     }
     final minimum = _number(config['minimum_booking_duration']);
     if (minimum != null && minimum > 0) {

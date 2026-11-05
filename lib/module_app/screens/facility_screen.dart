@@ -56,7 +56,10 @@ class _FacilitiesPageState extends State<FacilitiesPage> {
   void _openFacilityDetails(FacilityItem facility) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => FacilityDetailsScreen(facility: facility),
+        builder: (_) => FacilityDetailsScreen(
+          facility: facility,
+          loadFacilities: widget.loadFacilities,
+        ),
       ),
     );
   }
@@ -66,6 +69,7 @@ class _FacilitiesPageState extends State<FacilitiesPage> {
     return RefreshIndicator(
       onRefresh: _fetchFacilities,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         cacheExtent: 700,
         padding: EdgeInsets.fromLTRB(
           16,

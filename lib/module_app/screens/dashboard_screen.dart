@@ -411,7 +411,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     user: _user!,
                                     service: widget.sellerService,
                                     homeSection: true,
-                                    afterInventoryAlerts: CampusHomeBanners(
+                                    afterSalesTrend: CampusHomeBanners(
                                       active: _currentIndex == 0,
                                       onMarketplace: () => _goToTab(1),
                                       onFacilities: () => _goToTab(3),

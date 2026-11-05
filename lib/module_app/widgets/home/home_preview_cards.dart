@@ -372,6 +372,7 @@ class FacilityPreviewCard extends StatelessWidget {
     child: ResourceCatalogCard(
       resource: facility,
       category: facility.facilityTypeLabel,
+      showFacilityStatus: true,
       information: facilityCardInformation(facility),
       price: facility.cardPriceLabel,
       onDetails:

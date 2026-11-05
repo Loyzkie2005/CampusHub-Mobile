@@ -209,6 +209,7 @@ class BookingScaffold extends StatelessWidget {
     this.actions,
     this.backgroundColor = Colors.white,
     this.schedulePresentation = false,
+    this.flatAppBar = false,
   });
   final String title;
   final Widget child;
@@ -216,10 +217,12 @@ class BookingScaffold extends StatelessWidget {
   final List<Widget>? actions;
   final Color backgroundColor;
   final bool schedulePresentation;
+  final bool flatAppBar;
 
   @override
   Widget build(BuildContext context) {
     final baseTheme = Theme.of(context);
+    final useFlatAppBar = schedulePresentation || flatAppBar;
     final fontFamily = schedulePresentation
         ? 'Montserrat'
         : AppTypography.family;
@@ -265,7 +268,7 @@ class BookingScaffold extends StatelessWidget {
         backgroundColor: backgroundColor,
         appBar: AppBar(
           leadingWidth: 56,
-          leading: schedulePresentation
+          leading: useFlatAppBar
               ? const BackButton()
               : Padding(
                   padding: const EdgeInsets.only(left: 14),
@@ -309,8 +312,8 @@ class BookingScaffold extends StatelessWidget {
           foregroundColor: bookingNavy,
           surfaceTintColor: Colors.transparent,
           scrolledUnderElevation: 0,
-          elevation: schedulePresentation ? 0 : null,
-          shape: schedulePresentation
+          elevation: useFlatAppBar ? 0 : null,
+          shape: useFlatAppBar
               ? const Border()
               : const Border(bottom: BorderSide(color: bookingOutline)),
           actions: actions,

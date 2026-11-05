@@ -1,4 +1,3 @@
-import 'package:campushub/module_app/theme/app_typography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,14 +5,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/facility_detail_information.dart';
 import '../models/facility_item.dart';
 import '../services/facility_booking_service.dart';
+import '../services/facility_service.dart';
 import '../widgets/facilities/booking_widgets.dart';
+import '../widgets/facilities/facility_status_badge.dart';
 import '../widgets/product_image.dart';
 import 'facilities/facility_booking_screen.dart';
 
 // Saved-photo carousel and continuous facility information with the original
 // request action. Django remains the authority for all quotes.
-// The latest facility styling request uses the mobile CampusHub gold.
-const _facilityDetailGold = Color(0xFFFCB315);
+// Scoped to Details: preserve the rest of the app's current typography/palette.
+const _facilityDetailFont = 'Montserrat';
+const _facilityDetailGold = Color(0xFFFCB316);
 const _facilityControlSurface = Color(0xFFF5F6FA);
 const _facilityMuted = Color(0xFF50596D);
 const _facilityOutline = Color(0xFFE3E5ED);
@@ -24,9 +26,11 @@ class FacilityDetailsScreen extends StatefulWidget {
     super.key,
     required this.facility,
     this.service = const FacilityBookingService(),
+    this.loadFacilities = FacilityService.fetchFacilities,
   });
   final FacilityItem facility;
   final FacilityBookingService service;
+  final Future<FacilityServiceResult> Function() loadFacilities;
 
   @override
   State<FacilityDetailsScreen> createState() => _FacilityDetailsScreenState();
@@ -37,7 +41,51 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
   int _currentImageIndex = 0;
   bool _ratesExpanded = false;
   final PageController _pageController = PageController();
-  FacilityItem get facility => widget.facility;
+  late FacilityItem _facility = widget.facility;
+  FacilityItem get facility => _facility;
+  bool _refreshing = false;
+  String? _refreshError;
+
+  @override
+  void didUpdateWidget(covariant FacilityDetailsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.facility != oldWidget.facility) {
+      _facility = widget.facility;
+      _refreshError = null;
+    }
+  }
+
+  Future<void> _refreshFacility() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    FacilityItem? updated;
+    String? error;
+    try {
+      final result = await widget.loadFacilities();
+      if (result.success) {
+        final row = result.facilities
+            .where((item) => item['id'].toString() == facility.id)
+            .firstOrNull;
+        if (row != null) {
+          updated = FacilityItem.fromJson(row);
+        } else {
+          error = 'This facility is no longer listed. Booking is unavailable.';
+        }
+      } else {
+        error =
+            result.message ??
+            'Could not refresh facility status. Pull down to retry.';
+      }
+    } catch (_) {
+      error = 'Could not refresh facility status. Pull down to retry.';
+    }
+    if (!mounted) return;
+    setState(() {
+      if (updated != null) _facility = updated;
+      _refreshError = error;
+      _refreshing = false;
+    });
+  }
 
   @override
   void initState() {
@@ -76,7 +124,8 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
     );
   }
 
-  VoidCallback? get _requestAction => facility.status != 'Open for Booking'
+  VoidCallback? get _requestAction =>
+      _refreshing || _refreshError != null || !facility.isOpenForBooking
       ? null
       : facility.supportsSlotBooking
       ? _book
@@ -94,9 +143,12 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
       brightness: Brightness.light,
       scaffoldBackgroundColor: Colors.white,
       textTheme: base.textTheme.apply(
-        fontFamily: AppTypography.family,
+        fontFamily: _facilityDetailFont,
         bodyColor: bookingNavy,
         displayColor: bookingNavy,
+      ),
+      primaryTextTheme: base.primaryTextTheme.apply(
+        fontFamily: _facilityDetailFont,
       ),
       colorScheme: const ColorScheme.light(
         primary: bookingNavy,
@@ -122,110 +174,85 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
         ),
         child: Scaffold(
           backgroundColor: Colors.white,
-          body: ListView(
-            key: const ValueKey('facility-details-scroll'),
-            padding: EdgeInsets.zero,
-            children: [
-              _FacilityHeroGallery(
-                images: images,
-                currentIndex: _currentImageIndex,
-                controller: _pageController,
-                fallbackIcon: facility.icon,
-                favorite: _favorite,
-                onFavorite: _toggleFavorite,
-                onPageChanged: (index) =>
-                    setState(() => _currentImageIndex = index),
-              ),
-              _FacilityInformationSurface(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 620),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _overview(information),
-                          const SizedBox(height: 24),
-                          _rentalRates(information),
-                          if (facility.amenities.any(
-                            (item) => item.trim().isNotEmpty,
-                          ))
-                            _DetailSection(
-                              key: const ValueKey('facility-amenities-card'),
-                              title: 'Features & Amenities',
-                              child: _Amenities(
-                                amenities: facility.amenities
-                                    .where((item) => item.trim().isNotEmpty)
-                                    .toList(),
-                              ),
-                            ),
-                          if (facility.description.trim().isNotEmpty)
-                            _DetailSection(
-                              key: const ValueKey('facility-about-card'),
-                              title: 'About This Facility',
-                              child: _ExpandableDetailText(
-                                text: facility.description,
-                              ),
-                            ),
-                          _DetailSection(
-                            key: const ValueKey('facility-availability-card'),
-                            title: 'Operating Schedule',
-                            titleIcon: Icons.calendar_today_outlined,
-                            status: facility.status,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _OperatingScheduleCard(
-                                  information: information,
-                                ),
-                                for (final row in information.schedule.where(
-                                  (row) => [
-                                    'Operating hours',
-                                    'Check-in',
-                                    'Check-out',
-                                  ].contains(row.label),
-                                ))
-                                  _DetailLine(
-                                    label: row.label,
-                                    value: row.value,
+          body: RefreshIndicator(
+            onRefresh: _refreshFacility,
+            child: ListView(
+              key: const ValueKey('facility-details-scroll'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              children: [
+                _FacilityHeroGallery(
+                  images: images,
+                  currentIndex: _currentImageIndex,
+                  controller: _pageController,
+                  fallbackIcon: facility.icon,
+                  favorite: _favorite,
+                  onFavorite: _toggleFavorite,
+                  onPageChanged: (index) =>
+                      setState(() => _currentImageIndex = index),
+                ),
+                _FacilityInformationSurface(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 620),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _overview(information),
+                            if (_refreshError != null ||
+                                !facility.isOpenForBooking)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Text(
+                                  _refreshError ??
+                                      facility.bookingStatusExplanation,
+                                  key: const ValueKey(
+                                    'facility-booking-status-explanation',
                                   ),
-                              ],
-                            ),
-                          ),
-                          if (facility.requirements.trim().isNotEmpty ||
-                              information.schedule.any(
-                                (row) =>
-                                    !operatingDayLabels.contains(row.label) &&
-                                    ![
+                                  style: _detailText(13),
+                                ),
+                              ),
+                            const SizedBox(height: 24),
+                            _rentalRates(information),
+                            if (facility.amenities.any(
+                              (item) => item.trim().isNotEmpty,
+                            ))
+                              _DetailSection(
+                                key: const ValueKey('facility-amenities-card'),
+                                title: 'Features & Amenities',
+                                child: _Amenities(
+                                  amenities: facility.amenities
+                                      .where((item) => item.trim().isNotEmpty)
+                                      .toList(),
+                                ),
+                              ),
+                            if (facility.description.trim().isNotEmpty)
+                              _DetailSection(
+                                key: const ValueKey('facility-about-card'),
+                                title: 'About This Facility',
+                                child: _ExpandableDetailText(
+                                  text: facility.description,
+                                ),
+                              ),
+                            _DetailSection(
+                              key: const ValueKey('facility-availability-card'),
+                              title: 'Operating Schedule',
+                              titleIcon: Icons.calendar_today_outlined,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _OperatingScheduleCard(
+                                    information: information,
+                                  ),
+                                  for (final row in information.schedule.where(
+                                    (row) => [
                                       'Operating hours',
                                       'Check-in',
                                       'Check-out',
                                     ].contains(row.label),
-                              ))
-                            _DetailSection(
-                              key: const ValueKey(
-                                'facility-guidelines-section',
-                              ),
-                              title: 'Booking Guidelines',
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  if (facility.requirements.trim().isNotEmpty)
-                                    _ExpandableDetailText(
-                                      text: facility.requirements,
-                                    ),
-                                  for (final row in information.schedule.where(
-                                    (row) =>
-                                        !operatingDayLabels.contains(
-                                          row.label,
-                                        ) &&
-                                        ![
-                                          'Operating hours',
-                                          'Check-in',
-                                          'Check-out',
-                                        ].contains(row.label),
                                   ))
                                     _DetailLine(
                                       label: row.label,
@@ -234,49 +261,93 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
                                 ],
                               ),
                             ),
-                          if (facility.termsConditions.trim().isNotEmpty)
-                            _DetailSection(
-                              key: const ValueKey('facility-rules-card'),
-                              title: 'Terms & Conditions',
-                              child: _ExpandableDetailText(
-                                text: facility.termsConditions,
-                                disclosureLabel: 'terms and conditions',
+                            if (facility.requirements.trim().isNotEmpty ||
+                                information.schedule.any(
+                                  (row) =>
+                                      !operatingDayLabels.contains(row.label) &&
+                                      ![
+                                        'Operating hours',
+                                        'Check-in',
+                                        'Check-out',
+                                      ].contains(row.label),
+                                ))
+                              _DetailSection(
+                                key: const ValueKey(
+                                  'facility-guidelines-section',
+                                ),
+                                title: 'Booking Guidelines',
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (facility.requirements.trim().isNotEmpty)
+                                      _ExpandableDetailText(
+                                        text: facility.requirements,
+                                      ),
+                                    for (final row
+                                        in information.schedule.where(
+                                          (row) =>
+                                              !operatingDayLabels.contains(
+                                                row.label,
+                                              ) &&
+                                              ![
+                                                'Operating hours',
+                                                'Check-in',
+                                                'Check-out',
+                                              ].contains(row.label),
+                                        ))
+                                      _DetailLine(
+                                        label: row.label,
+                                        value: row.value,
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          _DetailSection(
-                            key: const ValueKey('facility-reviews-section'),
-                            title: 'Reviews & Ratings',
-                            child: information.reviewSummary == 'No reviews yet'
-                                ? _IconDetail(
-                                    icon: Icons.star_outline_rounded,
-                                    text: 'No reviews yet',
-                                  )
-                                : Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _IconDetail(
-                                        icon: Icons.star_outline_rounded,
-                                        text: information.reviewSummary,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Customer feedback is not available.',
-                                        style: _detailText(
-                                          14,
-                                          color: _facilityMuted,
+                            if (facility.termsConditions.trim().isNotEmpty)
+                              _DetailSection(
+                                key: const ValueKey('facility-rules-card'),
+                                title: 'Terms & Conditions',
+                                child: _ExpandableDetailText(
+                                  text: facility.termsConditions,
+                                  disclosureLabel: 'terms and conditions',
+                                ),
+                              ),
+                            _DetailSection(
+                              key: const ValueKey('facility-reviews-section'),
+                              title: 'Reviews & Ratings',
+                              child:
+                                  information.reviewSummary == 'No reviews yet'
+                                  ? _IconDetail(
+                                      icon: Icons.star_outline_rounded,
+                                      text: 'No reviews yet',
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _IconDetail(
+                                          icon: Icons.star_outline_rounded,
+                                          text: information.reviewSummary,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                          ),
-                        ],
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Customer feedback is not available.',
+                                          style: _detailText(
+                                            14,
+                                            color: _facilityMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           bottomNavigationBar: _FacilityBookingBar(
             favorite: _favorite,
@@ -384,124 +455,114 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
     ),
   );
   Widget _overview(FacilityDetailInformation information) {
-    return ConstrainedBox(
+    return Padding(
       key: const ValueKey('facility-main-info-card'),
-      constraints: const BoxConstraints(minHeight: 160),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (facility.facilityTypeLabel.trim().isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: _facilityControlSurface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _facilityOutline),
-                ),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Semantics(
+                header: true,
                 child: Text(
-                  facility.facilityTypeLabel,
-                  style: _detailText(11, weight: FontWeight.w600),
+                  facility.name,
+                  style: _detailText(
+                    26,
+                    weight: FontWeight.w700,
+                  ).copyWith(height: 1.15, letterSpacing: -.5),
                 ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final title = Semantics(
-                  header: true,
-                  child: Text(
-                    facility.name,
-                    style: _detailText(
-                      30,
-                      weight: FontWeight.w700,
-                    ).copyWith(height: 1.15, letterSpacing: -.5),
-                  ),
-                );
-                final chat = Tooltip(
-                  message: 'Chat with Facilities Admin',
-                  child: TextButton.icon(
-                    key: const ValueKey('facility-chat-button'),
-                    onPressed: () =>
-                        messageFacilitiesAdmin(context, facility.id),
-                    style: TextButton.styleFrom(
-                      foregroundColor: bookingNavy,
-                      minimumSize: const Size(48, 48),
-                      backgroundColor: _facilityControlSurface,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
+              );
+              final chat = Tooltip(
+                message: 'Chat with Facilities Admin',
+                child: TextButton.icon(
+                  key: const ValueKey('facility-chat-button'),
+                  onPressed: () => messageFacilitiesAdmin(context, facility.id),
+                  style: TextButton.styleFrom(
+                    foregroundColor: bookingNavy,
+                    minimumSize: const Size(48, 48),
+                    backgroundColor: _facilityControlSurface,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
                     ),
-                    icon: const Icon(Icons.chat_outlined),
-                    label: const Text('Chat'),
                   ),
-                );
-                if (MediaQuery.textScalerOf(context).scale(1) > 1.3) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      title,
-                      Align(alignment: Alignment.centerRight, child: chat),
-                    ],
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  icon: const Icon(Icons.chat_outlined),
+                  label: const Text('Chat'),
+                ),
+              );
+              final controls = Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FacilityStatusBadge(
+                    key: const ValueKey('facility-status-badge'),
+                    status: facility.status,
+                    fontFamily: _facilityDetailFont,
+                  ),
+                  const SizedBox(height: 4),
+                  chat,
+                ],
+              );
+              if (MediaQuery.textScalerOf(context).scale(1) > 1.3) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: title),
-                    const SizedBox(width: 8),
-                    chat,
+                    title,
+                    Align(alignment: Alignment.centerRight, child: controls),
                   ],
                 );
-              },
-            ),
-            if (facility.location.trim().isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _IconDetail(
-                icon: Icons.location_on_outlined,
-                text: facility.location,
-                iconColor: bookingNavy,
-              ),
-            ],
-            const SizedBox(height: 14),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final review = _IconDetail(
-                  key: const ValueKey('facility-header-review'),
-                  icon: Icons.star_outline_rounded,
-                  text: information.reviewSummary,
-                  iconColor: _facilityDetailGold,
-                );
-                final capacity = _IconDetail(
-                  icon: Icons.people_outline_rounded,
-                  text: information.capacity,
-                  iconColor: bookingNavy,
-                );
-                if (information.capacity.isEmpty) return review;
-                if (constraints.maxWidth < 340 ||
-                    MediaQuery.textScalerOf(context).scale(1) > 1.3) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [review, const SizedBox(height: 10), capacity],
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: review),
-                    const SizedBox(width: 16),
-                    Expanded(child: capacity),
-                  ],
-                );
-              },
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: title),
+                  const SizedBox(width: 8),
+                  Expanded(child: controls),
+                ],
+              );
+            },
+          ),
+          if (facility.location.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _IconDetail(
+              icon: Icons.location_on_outlined,
+              text: facility.location,
+              iconColor: bookingNavy,
             ),
           ],
-        ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final review = _IconDetail(
+                key: const ValueKey('facility-header-review'),
+                icon: Icons.star_outline_rounded,
+                text: information.reviewSummary,
+                iconColor: _facilityDetailGold,
+              );
+              final capacity = _IconDetail(
+                icon: Icons.people_outline_rounded,
+                text: information.capacity,
+                iconColor: bookingNavy,
+              );
+              if (information.capacity.isEmpty) return review;
+              if (constraints.maxWidth < 340 ||
+                  MediaQuery.textScalerOf(context).scale(1) > 1.3) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [review, const SizedBox(height: 10), capacity],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: review),
+                  const SizedBox(width: 16),
+                  Expanded(child: capacity),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -512,7 +573,7 @@ TextStyle _detailText(
   FontWeight weight = FontWeight.w400,
   Color color = bookingNavy,
 }) => TextStyle(
-  fontFamily: AppTypography.family,
+  fontFamily: _facilityDetailFont,
   fontSize: size,
   fontWeight: weight,
   fontVariations: [FontVariation('wght', weight.value.toDouble())],
@@ -752,12 +813,10 @@ class _DetailSection extends StatelessWidget {
     required this.title,
     required this.child,
     this.titleIcon,
-    this.status = '',
   });
   final String title;
   final Widget child;
   final IconData? titleIcon;
-  final String status;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 24),
@@ -798,19 +857,6 @@ class _DetailSection extends StatelessWidget {
                 ),
               ),
             ),
-            if (status.trim().isNotEmpty)
-              Container(
-                key: const ValueKey('facility-status-badge'),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _facilityControlSurface,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  status,
-                  style: _detailText(11, weight: FontWeight.w600),
-                ),
-              ),
           ],
         ),
         const SizedBox(height: 10),
@@ -868,21 +914,6 @@ class _OperatingScheduleCard extends StatelessWidget {
                 'Operating Days',
                 style: _detailText(13, weight: FontWeight.w600),
               ),
-              if (information.config['weekend_only'] == true)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _facilityControlSurface,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Weekend Only',
-                    style: _detailText(11, weight: FontWeight.w600),
-                  ),
-                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1144,9 +1175,7 @@ class _Amenities extends StatelessWidget {
                         ),
                         child: ExcludeSemantics(
                           child: Icon(
-                            amenity.toLowerCase().contains('chair')
-                                ? Icons.event_seat_outlined
-                                : iconForAmenity(amenity),
+                            iconForAmenity(amenity),
                             size: 23,
                             color: bookingNavy,
                           ),
@@ -1156,7 +1185,7 @@ class _Amenities extends StatelessWidget {
                       Text(
                         amenity,
                         textAlign: TextAlign.center,
-                        style: _detailText(11, weight: FontWeight.w500),
+                        style: _detailText(12, weight: FontWeight.w500),
                       ),
                     ],
                   ),

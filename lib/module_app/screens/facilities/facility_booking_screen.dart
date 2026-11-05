@@ -164,6 +164,24 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
             _step = 0;
             _error =
                 'Availability changed. Select an available date and time again.';
+          } else if (_slot == null) {
+            // A draft can have a window before any interval is confirmed.
+            // Keep an explicitly chosen unchanged window; clear stale choices.
+            final currentWindow = open
+                .where(
+                  (row) =>
+                      row['start'] == _window?['start'] &&
+                      row['end'] == _window?['end'] &&
+                      row['time_selection'] == _window?['time_selection'] &&
+                      row['minimum_duration_minutes'] ==
+                          _window?['minimum_duration_minutes'],
+                )
+                .firstOrNull;
+            if (currentWindow != null) {
+              _window = currentWindow;
+            } else {
+              _resetTimeSelection();
+            }
           }
         }
       });
@@ -253,7 +271,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         if (initialSelection != null) {
           _date = initialSelection;
           _slots = days[initialSelection]!;
-          _syncCustomWindow(_slots);
+          _resetTimeSelection();
         }
       });
     } catch (error) {
@@ -298,7 +316,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
           _slots = [];
           _error = 'This date is no longer available. Select another date.';
         } else {
-          _syncCustomWindow(slots);
+          _resetTimeSelection();
         }
       });
     } catch (error) {
@@ -341,23 +359,11 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
   int _slotDurationMinutes(Map<String, dynamic> slot) =>
       _minutesBetween('${slot['start']}', '${slot['end']}');
 
-  void _syncCustomWindow(List<Map<String, dynamic>> slots) {
-    final openCustom = slots
-        .where(
-          (s) =>
-              FacilityBookingService.isAvailableSlot(s) &&
-              s['time_selection'] == 'custom',
-        )
-        .toList();
-    if (openCustom.length == 1) {
-      _window = openCustom.first;
-      _customStart = '${openCustom.first['start']}';
-      _customEnd = '${openCustom.first['end']}';
-    } else {
-      _window = null;
-      _customStart = null;
-      _customEnd = null;
-    }
+  void _resetTimeSelection() {
+    // Loading a date's availability never chooses a booking window for the user.
+    _window = null;
+    _customStart = null;
+    _customEnd = null;
     _hasExplicitTimeSelection = false;
     _slot = null;
   }
@@ -369,7 +375,10 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         ? (_customStart ?? '${window!['start']}')
         : (_customEnd ?? '${window!['end']}');
     _pickingTime = true;
-    final picked = await showDialog<TimeOfDay>(
+    final picked = await showModalBottomSheet<TimeOfDay>(
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       context: context,
       builder: (_) => BookingTimeDialog(
         title: start ? 'Start Time' : 'End Time',
@@ -886,6 +895,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
     },
     child: BookingScaffold(
       schedulePresentation: _step == 0,
+      flatAppBar: _step == 1,
       title: [
         'Select Schedule',
         'Booking Details',
@@ -932,7 +942,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
               busy: _busy,
               fontFamily: _step == 0 ? scheduleFont : AppTypography.family,
               onPressed:
-                  _loading ||
+                  !widget.facility.isOpenForBooking ||
+                      _loading ||
                       _date == null ||
                       _slot == null ||
                       (_step == 0 && (_calendarLoading || _error != null))
@@ -946,6 +957,11 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
           children: [
+            if (!widget.facility.isOpenForBooking)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(widget.facility.bookingStatusExplanation),
+              ),
             BookingSteps(
               _step,
               connected: _step != 0,
@@ -1010,11 +1026,9 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                widget.facility.workflowConfig['weekend_only'] == true
-                    ? 'Weekend bookings only. Choose an available date.'
-                    : 'Choose an available date for your booking.',
-                style: const TextStyle(
+              const Text(
+                'Choose an available date for your booking.',
+                style: TextStyle(
                   fontFamily: scheduleFont,
                   fontVariations: [FontVariation('wght', 400)],
                   fontSize: 12,
@@ -1279,15 +1293,41 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                               ),
                             ),
                           const SizedBox(width: 8),
-                          Icon(
-                            selected
-                                ? Icons.check_circle_outline_rounded
-                                : available
-                                ? Icons.circle_outlined
-                                : Icons.block,
-                            size: 19,
-                            color: selected ? bookingNavy : bookingGreyDot,
-                          ),
+                          if (!available)
+                            const Icon(
+                              Icons.block,
+                              size: 19,
+                              color: bookingGreyDot,
+                            )
+                          else
+                            Container(
+                              key: const ValueKey('available-hours-circle-dot'),
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selected
+                                      ? bookingNavy
+                                      : bookingGreyDot,
+                                  width: selected ? 2.0 : 1.5,
+                                ),
+                              ),
+                              alignment: Alignment.center,
+                              child: selected
+                                  ? Container(
+                                      key: const ValueKey(
+                                        'available-hours-inner-dot',
+                                      ),
+                                      width: 10,
+                                      height: 10,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: bookingNavy,
+                                      ),
+                                    )
+                                  : null,
+                            ),
                         ],
                       ),
                     ),

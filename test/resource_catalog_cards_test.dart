@@ -185,7 +185,7 @@ void main() {
         expect(find.text(record.location), findsOneWidget);
         expect(find.text('4.8 (12)'), findsOneWidget);
         expect(find.text('No reviews yet'), findsOneWidget);
-        expect(find.text('Under Maintenance'), findsNothing);
+        expect(find.text('Under Maintenance'), findsNWidgets(2));
         expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
         final buttons = find.widgetWithText(TextButton, 'View Details');
         if (width >= 844) {

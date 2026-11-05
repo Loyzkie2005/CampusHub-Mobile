@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'booking_schedule_calendar.dart';
 import 'booking_widgets.dart';
 
+const _selectionBg = Color(0xFFF2F4F7);
+
 /// Keeps wheel changes local until OK; the booking screen validates the result.
 class BookingTimeDialog extends StatefulWidget {
   const BookingTimeDialog({
@@ -19,193 +21,300 @@ class BookingTimeDialog extends StatefulWidget {
 }
 
 class _BookingTimeDialogState extends State<BookingTimeDialog> {
-  late final _hours = FixedExtentScrollController(
-    initialItem: (widget.initialTime.hour + 11) % 12,
-  );
-  late final _minutes = FixedExtentScrollController(
-    initialItem: widget.initialTime.minute,
-  );
-  late DayPeriod _period = widget.initialTime.period;
+  late int _hourIndex = (widget.initialTime.hour + 11) % 12;
+  late int _minuteIndex = widget.initialTime.minute;
+  late int _periodIndex = widget.initialTime.period == DayPeriod.am ? 0 : 1;
+
+  late final _hours = FixedExtentScrollController(initialItem: _hourIndex);
+  late final _minutes = FixedExtentScrollController(initialItem: _minuteIndex);
+  late final _periods = FixedExtentScrollController(initialItem: _periodIndex);
 
   @override
   void dispose() {
     _hours.dispose();
     _minutes.dispose();
+    _periods.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final extent = MediaQuery.textScalerOf(context).scale(28) + 16;
-    final actionStyle = TextButton.styleFrom(
-      foregroundColor: bookingNavy,
-      minimumSize: const Size(64, 48),
-      textStyle: const TextStyle(
-        fontFamily: scheduleFont,
-        fontVariations: [FontVariation('wght', 500)],
-        fontSize: 14,
-      ),
+    final extent = (MediaQuery.textScalerOf(context).scale(22) + 18).clamp(
+      40.0,
+      56.0,
     );
-    Widget wheel(
-      String label,
-      int count,
-      FixedExtentScrollController controller,
-    ) => Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            height: extent * 3,
-            child: Semantics(
-              label: label,
+    final wheelHeight = (extent * 3.6).clamp(150.0, 196.0);
+    final selectedHour = _hours.hasClients ? _hours.selectedItem : _hourIndex;
+    final selectedMinute = _minutes.hasClients
+        ? _minutes.selectedItem
+        : _minuteIndex;
+    final selectedPeriod = _periods.hasClients
+        ? _periods.selectedItem
+        : _periodIndex;
+
+    Widget wheel({
+      required String semanticLabel,
+      required Key wheelKey,
+      required Key selectionKey,
+      required int count,
+      required FixedExtentScrollController controller,
+      required int selectedIndex,
+      required ValueChanged<int> onChanged,
+      required String Function(int index) labelBuilder,
+      Key Function(int index)? itemKeyBuilder,
+    }) => Expanded(
+      child: SizedBox(
+        height: wheelHeight,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Selection background placed BEHIND the numbers so text is completely visible.
+            Positioned(
+              left: 4,
+              right: 4,
+              height: extent,
+              child: Container(
+                key: selectionKey,
+                decoration: BoxDecoration(
+                  color: _selectionBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            // The scrollable wheel rendered ON TOP of the selection background.
+            Semantics(
+              label: semanticLabel,
               child: CupertinoPicker(
-                key: ValueKey('booking-time-${label.toLowerCase()}-wheel'),
+                key: wheelKey,
                 scrollController: controller,
                 itemExtent: extent,
-                onSelectedItemChanged: (_) {},
-                selectionOverlay: CupertinoPickerDefaultSelectionOverlay(
-                  background: bookingNavy.withValues(alpha: .06),
-                ),
+                diameterRatio: 1.15,
+                squeeze: 1.0,
+                selectionOverlay: null,
+                onSelectedItemChanged: onChanged,
                 children: [
-                  for (var value = 0; value < count; value++)
-                    Center(
-                      child: Text(
-                        (label == 'Hour' ? value + 1 : value)
-                            .toString()
-                            .padLeft(2, '0'),
-                        style: const TextStyle(
-                          fontFamily: scheduleFont,
-                          fontVariations: [FontVariation('wght', 500)],
-                          fontSize: 28,
-                          color: bookingNavy,
+                  for (var index = 0; index < count; index++)
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (controller.hasClients) {
+                          controller.jumpToItem(index);
+                        }
+                        onChanged(index);
+                      },
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              labelBuilder(index),
+                              key: itemKeyBuilder?.call(index),
+                              style: TextStyle(
+                                fontFamily: scheduleFont,
+                                fontWeight: index == selectedIndex
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                                fontVariations: [
+                                  FontVariation(
+                                    'wght',
+                                    index == selectedIndex ? 600 : 500,
+                                  ),
+                                ],
+                                fontSize: 22,
+                                color: bookingNavy,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-          ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontFamily: scheduleFont,
-              fontVariations: [FontVariation('wght', 400)],
-              fontSize: 12,
-              color: bookingMuted,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return AlertDialog(
-      key: const ValueKey('booking-time-dialog'),
-      backgroundColor: Colors.white,
-      surfaceTintColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      scrollable: true,
-      title: Text(
-        widget.title,
-        style: const TextStyle(
-          fontFamily: scheduleFont,
-          fontVariations: [FontVariation('wght', 500)],
-          fontSize: 14,
-          color: bookingNavy,
-        ),
-      ),
-      contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      content: SizedBox(
-        width: 300,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                wheel('Hour', 12, _hours),
-                SizedBox(
-                  height: extent * 3,
-                  child: const Center(
-                    child: Text(
-                      ':',
-                      style: TextStyle(
-                        fontFamily: scheduleFont,
-                        fontVariations: [FontVariation('wght', 500)],
-                        fontSize: 28,
-                        color: bookingNavy,
-                      ),
-                    ),
-                  ),
-                ),
-                wheel('Minute', 60, _minutes),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<DayPeriod>(
-              key: const ValueKey('booking-time-period'),
-              showSelectedIcon: false,
-              style: ButtonStyle(
-                minimumSize: const WidgetStatePropertyAll(Size(72, 48)),
-                foregroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected)
-                      ? Colors.white
-                      : bookingNavy,
-                ),
-                backgroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected)
-                      ? bookingNavy
-                      : Colors.white,
-                ),
-                side: const WidgetStatePropertyAll(
-                  BorderSide(color: bookingOutline),
-                ),
-                textStyle: const WidgetStatePropertyAll(
-                  TextStyle(
-                    fontFamily: scheduleFont,
-                    fontVariations: [FontVariation('wght', 500)],
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              segments: const [
-                ButtonSegment(
-                  value: DayPeriod.am,
-                  label: Text('AM', key: ValueKey('booking-time-am')),
-                ),
-                ButtonSegment(
-                  value: DayPeriod.pm,
-                  label: Text('PM', key: ValueKey('booking-time-pm')),
-                ),
-              ],
-              selected: {_period},
-              onSelectionChanged: (selected) =>
-                  setState(() => _period = selected.single),
-            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          key: const ValueKey('booking-time-cancel'),
-          style: actionStyle,
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          key: const ValueKey('booking-time-ok'),
-          style: actionStyle,
-          onPressed: () => Navigator.of(context).pop(
-            TimeOfDay(
-              hour:
-                  (_hours.selectedItem + 1) % 12 +
-                  (_period == DayPeriod.pm ? 12 : 0),
-              minute: _minutes.selectedItem,
+    );
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: Material(
+          key: const ValueKey('booking-time-dialog'),
+          color: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      key: const ValueKey('booking-time-drag-handle'),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: bookingOutline,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    widget.title,
+                    key: const ValueKey('booking-time-title'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: scheduleFont,
+                      fontWeight: FontWeight.w600,
+                      fontVariations: [FontVariation('wght', 600)],
+                      fontSize: 16,
+                      color: bookingNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      wheel(
+                        semanticLabel: 'Hour',
+                        wheelKey: const ValueKey('booking-time-hour-wheel'),
+                        selectionKey: const ValueKey(
+                          'booking-time-hour-selection',
+                        ),
+                        count: 12,
+                        controller: _hours,
+                        selectedIndex: selectedHour,
+                        onChanged: (index) =>
+                            setState(() => _hourIndex = index),
+                        labelBuilder: (index) =>
+                            (index + 1).toString().padLeft(2, '0'),
+                      ),
+                      const SizedBox(width: 8),
+                      wheel(
+                        semanticLabel: 'Minute',
+                        wheelKey: const ValueKey('booking-time-minute-wheel'),
+                        selectionKey: const ValueKey(
+                          'booking-time-minute-selection',
+                        ),
+                        count: 60,
+                        controller: _minutes,
+                        selectedIndex: selectedMinute,
+                        onChanged: (index) =>
+                            setState(() => _minuteIndex = index),
+                        labelBuilder: (index) =>
+                            index.toString().padLeft(2, '0'),
+                      ),
+                      const SizedBox(width: 8),
+                      wheel(
+                        semanticLabel: 'AM/PM',
+                        wheelKey: const ValueKey('booking-time-period'),
+                        selectionKey: const ValueKey(
+                          'booking-time-period-selection',
+                        ),
+                        count: 2,
+                        controller: _periods,
+                        selectedIndex: selectedPeriod,
+                        onChanged: (index) =>
+                            setState(() => _periodIndex = index),
+                        labelBuilder: (index) => index == 0 ? 'AM' : 'PM',
+                        itemKeyBuilder: (index) => ValueKey(
+                          index == 0 ? 'booking-time-am' : 'booking-time-pm',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          key: const ValueKey('booking-time-cancel'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: bookingNavy,
+                            backgroundColor: Colors.white,
+                            overlayColor: scheduleGold.withValues(alpha: 0.14),
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            side: const BorderSide(color: bookingOutline),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: const TextStyle(
+                              fontFamily: scheduleFont,
+                              fontWeight: FontWeight.w600,
+                              fontVariations: [FontVariation('wght', 600)],
+                              fontSize: 14,
+                            ),
+                          ),
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('Cancel'),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextButton(
+                          key: const ValueKey('booking-time-ok'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: bookingNavy,
+                            overlayColor: scheduleGold.withValues(alpha: 0.18),
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: const TextStyle(
+                              fontFamily: scheduleFont,
+                              fontWeight: FontWeight.w600,
+                              fontVariations: [FontVariation('wght', 600)],
+                              fontSize: 14,
+                            ),
+                          ),
+                          onPressed: () {
+                            final hourIndex = _hours.hasClients
+                                ? _hours.selectedItem
+                                : _hourIndex;
+                            final minuteIndex = _minutes.hasClients
+                                ? _minutes.selectedItem
+                                : _minuteIndex;
+                            final periodIndex = _periods.hasClients
+                                ? _periods.selectedItem
+                                : _periodIndex;
+                            final hour =
+                                (hourIndex + 1) % 12 +
+                                (periodIndex == 1 ? 12 : 0);
+                            Navigator.of(
+                              context,
+                            ).pop(TimeOfDay(hour: hour, minute: minuteIndex));
+                          },
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('OK'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-          child: const Text('OK'),
         ),
-      ],
+      ),
     );
   }
 }

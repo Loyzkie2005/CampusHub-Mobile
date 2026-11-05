@@ -33,6 +33,7 @@ class SellerDashboardPage extends StatefulWidget {
     this.initialDestination = SellerDestination.overview,
     this.onOpenDestination,
     this.refreshRevision = 0,
+    this.afterSalesTrend,
     this.afterInventoryAlerts,
   });
   final AuthUser user;
@@ -46,6 +47,7 @@ class SellerDashboardPage extends StatefulWidget {
   final SellerDestination initialDestination;
   final ValueChanged<SellerDestination>? onOpenDestination;
   final int refreshRevision;
+  final Widget? afterSalesTrend;
   final Widget? afterInventoryAlerts;
   @override
   State<SellerDashboardPage> createState() => _SellerDashboardPageState();
@@ -279,7 +281,8 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                   onPeriod: _changePeriod,
                   onOrdersPage: (_) {},
                   homeHighlightsOnly: true,
-                  afterInventoryAlerts: widget.afterInventoryAlerts,
+                  afterSalesTrend:
+                      widget.afterSalesTrend ?? widget.afterInventoryAlerts,
                 ),
         ),
       );
@@ -443,6 +446,9 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                                 _ordersPage = value;
                                 _load();
                               },
+                              afterSalesTrend:
+                                  widget.afterSalesTrend ??
+                                  widget.afterInventoryAlerts,
                             ),
                     ),
             ),

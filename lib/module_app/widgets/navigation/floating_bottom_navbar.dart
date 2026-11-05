@@ -359,7 +359,7 @@ class FloatingBottomNavbar extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   child: IconTheme(
-                    data: IconThemeData(color: activeColor, size: 16),
+                    data: IconThemeData(color: activeColor, size: 26),
                     child: const AddProductNavigationIcon(),
                   ),
                 ),

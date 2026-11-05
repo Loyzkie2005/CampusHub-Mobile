@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../config/api_config.dart';
 
+export 'amenity_icon.dart' show iconForAmenity;
+
 class FacilityItem {
   const FacilityItem({
     required this.id,
@@ -36,13 +38,13 @@ class FacilityItem {
   });
 
   factory FacilityItem.fromJson(Map<String, dynamic> json) {
-    final statusKey = (json['status'] as String? ?? 'available').toLowerCase();
+    final statusKey = (json['status'] as String? ?? '').trim().toLowerCase();
     final statusLabel = switch (statusKey) {
       'available' => 'Open for Booking',
       'unavailable' || 'reserved' || 'occupied' => 'Temporarily Unavailable',
       'maintenance' => 'Under Maintenance',
       'inactive' => 'Inactive',
-      _ => 'Temporarily Unavailable',
+      _ => 'Status unavailable',
     };
 
     final rawAmenities = json['amenities'];
@@ -112,6 +114,21 @@ class FacilityItem {
   final String facilityType;
   final String facilityTypeLabel;
   final String status;
+
+  bool get isOpenForBooking => status == 'Open for Booking';
+
+  String get bookingStatusExplanation => switch (status) {
+    'Open for Booking' =>
+      'Accepting requests during operating hours, subject to actual availability.',
+    'Temporarily Unavailable' =>
+      'Booking requests are temporarily paused for this facility.',
+    'Under Maintenance' =>
+      'This facility is under maintenance and cannot accept booking requests.',
+    'Inactive' =>
+      'This facility is inactive and is not accepting booking requests.',
+    _ =>
+      'Facility status could not be verified. Refresh before requesting a booking.',
+  };
   final String capacity;
   final String capacityLabel;
   final String rate;
@@ -306,29 +323,4 @@ IconData iconForFacility(String name, {String facilityType = ''}) {
   if (lower.contains('kitchen')) return Icons.local_fire_department_outlined;
   if (lower.contains('assess')) return Icons.verified_outlined;
   return Icons.assignment_outlined;
-}
-
-IconData iconForAmenity(String amenity) {
-  final lower = amenity.toLowerCase();
-  if (lower.contains('basketball') || lower.contains('court')) {
-    return Icons.sports_basketball_outlined;
-  }
-  if (lower.contains('bleacher') || lower.contains('seat')) {
-    return Icons.stadium_outlined;
-  }
-  if (lower.contains('sound') || lower.contains('audio')) {
-    return Icons.surround_sound_outlined;
-  }
-  if (lower.contains('light')) return Icons.light_mode_outlined;
-  if (lower.contains('restroom') || lower.contains('comfort')) {
-    return Icons.wc_outlined;
-  }
-  if (lower.contains('park')) return Icons.local_parking_outlined;
-  if (lower.contains('wifi')) return Icons.wifi_outlined;
-  if (lower.contains('air')) return Icons.ac_unit_outlined;
-  if (lower.contains('cabinet')) return Icons.inventory_2_outlined;
-  if (lower.contains('table') || lower.contains('study')) {
-    return Icons.table_restaurant_outlined;
-  }
-  return Icons.check_circle_outline;
 }

@@ -4,6 +4,7 @@ import '../../models/facility_item.dart';
 import '../../models/service_item.dart';
 import '../../theme/app_typography.dart';
 import '../product_image.dart';
+import 'facility_status_badge.dart';
 
 /// Shared, read-only presentation for a facility or service. The caller owns
 /// navigation; this card never approves, books, pays for or favorites a resource.
@@ -15,6 +16,7 @@ class ResourceCatalogCard extends StatelessWidget {
     required this.price,
     required this.onDetails,
     this.information = '',
+    this.showFacilityStatus = false,
   });
 
   static const navy = Color(0xFF1A1851);
@@ -28,6 +30,7 @@ class ResourceCatalogCard extends StatelessWidget {
   final String information;
   final String price;
   final VoidCallback onDetails;
+  final bool showFacilityStatus;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -80,7 +83,24 @@ class ResourceCatalogCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (category.trim().isNotEmpty) ...[
+                if (showFacilityStatus) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(category, style: _text(11, secondary)),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: FacilityStatusBadge(status: resource.status),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ] else if (category.trim().isNotEmpty) ...[
                   Text(category, style: _text(11, secondary)),
                   const SizedBox(height: 4),
                 ],
