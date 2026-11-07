@@ -1599,8 +1599,20 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
           'Sales Overview',
           style: InterTypography.sized(16, weight: 600),
         );
-        if (constraints.maxWidth < 300 ||
-            MediaQuery.textScalerOf(context).scale(16) > 24) {
+        final titlePainter = TextPainter(
+          text: TextSpan(
+            text: 'Sales Overview',
+            style: DefaultTextStyle.of(context).style.merge(title.style),
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        final fitsInOneRow =
+            titlePainter.width + 8 + _salesPeriodWidth() <=
+            constraints.maxWidth;
+        titlePainter.dispose();
+        if (!fitsInOneRow) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1944,22 +1956,34 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
     ),
   );
 
+  TextStyle get _salesPeriodLabelStyle =>
+      _text(12, weight: 500).copyWith(letterSpacing: 0);
+
+  double _salesPeriodWidth() {
+    var width = 94.0;
+    final label =
+        _salesPeriods['${analytics['period']}'] ?? '${analytics['label']}';
+    for (final text in {..._salesPeriods.values, label}) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: _salesPeriodLabelStyle),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      // Padding (24), chevron (16), gap (6), and rounding allowance (2).
+      final requiredWidth = painter.width.ceilToDouble() + 48;
+      if (requiredWidth > width) width = requiredWidth;
+      painter.dispose();
+    }
+    return width;
+  }
+
   Widget salesPeriod({bool compact = false}) {
     if (compact) {
       final label =
           _salesPeriods['${analytics['period']}'] ?? '${analytics['label']}';
-      final labelStyle = _text(12, weight: 500);
-      var controlWidth = 94.0;
-      for (final text in {..._salesPeriods.values, label}) {
-        final painter = TextPainter(
-          text: TextSpan(text: text, style: labelStyle),
-          textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
-        )..layout();
-        final requiredWidth = painter.width + 46;
-        if (requiredWidth > controlWidth) controlWidth = requiredWidth;
-        painter.dispose();
-      }
+      final labelStyle = _salesPeriodLabelStyle;
+      final controlWidth = _salesPeriodWidth();
       final theme = Theme.of(context);
       return Theme(
         data: theme.copyWith(
@@ -1997,7 +2021,12 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
                   value: period.key,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   checked: period.key == '${analytics['period']}',
-                  child: Text(period.value, style: labelStyle),
+                  child: Text(
+                    period.value,
+                    style: labelStyle,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
                 ),
             ],
             child: Container(
@@ -2014,7 +2043,14 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Flexible(child: Text(label, style: labelStyle)),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: labelStyle,
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
                   const SizedBox(width: 6),
                   const Icon(
                     Iconsax.arrow_down_1_copy,

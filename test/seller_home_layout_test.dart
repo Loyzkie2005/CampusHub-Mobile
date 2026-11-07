@@ -480,7 +480,7 @@ void main() {
       }
     });
   }
-  for (final (width, scale) in [(375.0, 1.0), (320.0, 2.0)]) {
+  for (final (width, scale) in [(280.0, 1.0), (375.0, 1.0), (320.0, 2.0)]) {
     testWidgets('sales menu stays below its filter at $width/$scale', (
       tester,
     ) async {
@@ -508,6 +508,21 @@ void main() {
           find.byKey(const ValueKey('seller-sales-period-control')),
         );
         final decoration = surface.decoration! as BoxDecoration;
+        final selectedLabel = find.descendant(
+          of: find.byKey(const ValueKey('seller-sales-period-control')),
+          matching: find.byType(Text),
+        );
+        final selectedText = tester.widget<Text>(selectedLabel);
+        expect(selectedText.maxLines, 1);
+        expect(selectedText.softWrap, isFalse);
+        final selectedRender = tester.renderObject<RenderParagraph>(
+          selectedLabel,
+        );
+        expect(selectedRender.didExceedMaxLines, isFalse);
+        expect(
+          selectedRender.getMaxIntrinsicWidth(double.infinity),
+          lessThanOrEqualTo(selectedRender.size.width + 0.1),
+        );
         expect(decoration.color, Colors.white);
         expect(decoration.borderRadius, BorderRadius.circular(50));
         expect(decoration.border, Border.all(color: HomeAppColors.border));
@@ -529,6 +544,10 @@ void main() {
         if (scale == 1) {
           expect(trigger.width, closeTo(94, 4));
           expect(trigger.height, 48);
+          expect(
+            tester.getCenter(find.text('Sales Overview')).dy,
+            closeTo(trigger.center.dy, 0.1),
+          );
         }
         final directory = Platform.environment['SELLER_HOME_REVIEW_DIR'];
         if (directory != null) {
@@ -570,6 +589,26 @@ void main() {
           of: monthly,
           matching: find.text('Monthly'),
         );
+        for (final item in [
+          dailyLabel,
+          monthlyLabel,
+          find.descendant(
+            of: find.widgetWithText(CheckedPopupMenuItem<String>, 'Weekly'),
+            matching: find.text('Weekly'),
+          ),
+        ]) {
+          expect(tester.widget<Text>(item).maxLines, 1);
+          expect(tester.widget<Text>(item).softWrap, isFalse);
+          expect(
+            tester.renderObject<RenderParagraph>(item).didExceedMaxLines,
+            isFalse,
+          );
+          final renderedLabel = tester.renderObject<RenderParagraph>(item);
+          expect(
+            renderedLabel.getMaxIntrinsicWidth(double.infinity),
+            lessThanOrEqualTo(renderedLabel.size.width + 0.1),
+          );
+        }
         expect(
           tester.getRect(dailyLabel).left,
           closeTo(tester.getRect(monthlyLabel).left, 0.1),
