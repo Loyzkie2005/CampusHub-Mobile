@@ -63,6 +63,9 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
   SellerDestination _selected = SellerDestination.overview;
   bool _loading = true, _approved = false;
   String? _error;
+  bool _salesLoading = false;
+  String? _salesError;
+  int _salesRequest = 0;
   String _period = '7';
   bool _productSearchOpen = false;
   int _ordersPage = 1, _request = 0;
@@ -88,9 +91,12 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
 
   Future<void> _load() async {
     final request = ++_request;
+    ++_salesRequest; // A full refresh supersedes any pending sales-only request.
     setState(() {
       _loading = true;
       _error = null;
+      _salesLoading = false;
+      _salesError = null;
     });
     try {
       final status = await widget.service.status();
@@ -109,10 +115,16 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
         period: _period,
         ordersPage: _ordersPage,
       );
+      _readAnalytics(data['analytics'], _period);
+      final overview = data['overview'];
+      bool validCount(Object? value) => value is int && value >= 0;
       if (data['products'] is! List ||
           data['inventory'] is! List ||
           data['orders'] is! List ||
-          data['analytics'] is! Map ||
+          !validCount(data['order_count']) ||
+          overview is! Map ||
+          !validCount(overview['completed_orders']) ||
+          !validCount(overview['pending_orders']) ||
           data['recommendations'] is! Map ||
           data['saved_suggestions'] is! List) {
         throw const SellerApplicationException(
@@ -143,9 +155,80 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
   }
 
   void _changePeriod(String value) {
-    if (value == _period) return;
-    _period = value;
-    _load();
+    if (!{'day', '7', 'month'}.contains(value) ||
+        (value == _period && _salesError == null)) {
+      return;
+    }
+    _refreshSales(value);
+  }
+
+  Map<String, dynamic> _readAnalytics(Object? value, String period) {
+    final revenue = value is Map ? num.tryParse('${value['revenue']}') : null;
+    if (value is! Map ||
+        value['period'] != period ||
+        value['label'] is! String ||
+        (value['label'] as String).trim().isEmpty ||
+        revenue == null ||
+        !revenue.isFinite ||
+        revenue < 0 ||
+        value['completed_orders'] is! int ||
+        (value['completed_orders'] as int) < 0) {
+      throw const SellerApplicationException(
+        'The seller workspace returned an unreadable response. Retry.',
+      );
+    }
+    return Map<String, dynamic>.from(value);
+  }
+
+  Future<void> _refreshSales(String period) async {
+    if (_loading || !_approved || _data.isEmpty) return;
+    final request = ++_salesRequest;
+    final fullRequest = _request;
+    final userId = widget.user.id;
+    setState(() {
+      _period = period;
+      _salesLoading = true;
+      _salesError = null;
+    });
+    bool current() =>
+        mounted &&
+        request == _salesRequest &&
+        fullRequest == _request &&
+        widget.user.id == userId;
+    try {
+      // This endpoint already authenticates and enforces active seller access.
+      final response = await widget.service.workspace(
+        period: period,
+        ordersPage: _ordersPage,
+      );
+      if (!current()) return;
+      final analytics = _readAnalytics(response['analytics'], period);
+      setState(() => _data = {..._data, 'analytics': analytics});
+    } catch (error) {
+      if (!mounted || widget.user.id != userId) return;
+      if (error is SellerApplicationException &&
+          [401, 403].contains(error.statusCode)) {
+        // Even a late authorization denial must not leave seller data visible.
+        ++_request;
+        ++_salesRequest;
+        setState(() {
+          _approved = false;
+          _data = {};
+          _loading = false;
+          _salesLoading = false;
+          _salesError = null;
+          _error = error.message;
+        });
+      } else if (current()) {
+        setState(
+          () => _salesError = error is SellerApplicationException
+              ? error.message
+              : 'Unable to refresh sales. Check your connection and retry.',
+        );
+      }
+    } finally {
+      if (current()) setState(() => _salesLoading = false);
+    }
   }
 
   void _backHome() {
@@ -279,6 +362,9 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                   onReload: _load,
                   onOrderProgress: widget.service.orderProgress,
                   onPeriod: _changePeriod,
+                  salesRefreshing: _salesLoading,
+                  salesError: _salesError,
+                  onSalesRetry: () => _refreshSales(_period),
                   onOrdersPage: (_) {},
                   homeHighlightsOnly: true,
                   afterSalesTrend:
@@ -442,6 +528,9 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                               onReload: _load,
                               onOrderProgress: widget.service.orderProgress,
                               onPeriod: _changePeriod,
+                              salesRefreshing: _salesLoading,
+                              salesError: _salesError,
+                              onSalesRetry: () => _refreshSales(_period),
                               onOrdersPage: (value) {
                                 _ordersPage = value;
                                 _load();

@@ -317,12 +317,12 @@ void main() {
         findsOneWidget,
       );
       expect(
-        tester.getRect(suggestions).top,
-        greaterThan(tester.getRect(inventory).bottom),
+        tester.getRect(inventory).top,
+        greaterThan(tester.getRect(suggestions).bottom),
       );
       expect(
         tester.getRect(salesTrend).top,
-        greaterThan(tester.getRect(suggestions).bottom),
+        greaterThan(tester.getRect(inventory).bottom),
       );
       expect(
         tester.getRect(banner).top,

@@ -29,6 +29,9 @@ class SellerWorkspaceContent extends StatefulWidget {
     this.onOrderProgress,
     this.afterSalesTrend,
     this.afterInventoryAlerts,
+    this.salesRefreshing = false,
+    this.salesError,
+    this.onSalesRetry,
   });
   final SellerDestination destination;
   final Map<String, dynamic> data;
@@ -43,6 +46,9 @@ class SellerWorkspaceContent extends StatefulWidget {
   final Future<void> Function(int, String)? onOrderProgress;
   final Widget? afterSalesTrend;
   final Widget? afterInventoryAlerts;
+  final bool salesRefreshing;
+  final String? salesError;
+  final VoidCallback? onSalesRetry;
 
   @override
   State<SellerWorkspaceContent> createState() => _SellerWorkspaceContentState();
@@ -50,8 +56,7 @@ class SellerWorkspaceContent extends StatefulWidget {
 
 class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
   bool _savingDelivery = false;
-  Widget? get _banner =>
-      widget.afterSalesTrend ?? widget.afterInventoryAlerts;
+  Widget? get _banner => widget.afterSalesTrend ?? widget.afterInventoryAlerts;
   bool? _savedDelivery;
 
   Future<void> _setDelivery(bool enabled) async {
@@ -1601,7 +1606,10 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
             children: [
               title,
               const SizedBox(height: 8),
-              salesPeriod(compact: true),
+              Align(
+                alignment: Alignment.centerRight,
+                child: salesPeriod(compact: true),
+              ),
             ],
           );
         }
@@ -1615,18 +1623,25 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       },
     ),
     const SizedBox(height: 12),
+    _salesOverviewBanner(),
+    const SizedBox(height: 12),
+    Text(
+      'All-time order counts',
+      style: InterTypography.sized(12, color: HomeAppColors.secondaryText),
+    ),
+    const SizedBox(height: 8),
     LayoutBuilder(
       builder: (context, constraints) {
-        const columns = 2;
+        final labelSize = MediaQuery.textScalerOf(context).scale(12);
+        final columns = constraints.maxWidth >= 330 && labelSize <= 16
+            ? 3
+            : constraints.maxWidth >= 280 && labelSize <= 18
+            ? 2
+            : 1;
         final overview = widget.data['overview'] is Map
             ? widget.data['overview'] as Map
             : const {};
         final entries = <_SellerOverviewMetric>[
-          _SellerOverviewMetric(
-            title: 'Total Sales',
-            value: money(analytics['revenue']),
-            icon: Iconsax.wallet_2_copy,
-          ),
           _SellerOverviewMetric(
             title: 'Total Orders',
             value: '${widget.data['order_count'] ?? 0}',
@@ -1644,7 +1659,7 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
             icon: Iconsax.clock_copy,
           ),
         ];
-        final width = (constraints.maxWidth - 12) / columns;
+        final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
         double measured(String text, TextStyle style) {
           final painter = TextPainter(
             text: TextSpan(
@@ -1699,6 +1714,11 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
         );
       },
     ),
+    sectionHeader(
+      'Suggested Product Bundles',
+      SellerDestination.recommendations,
+    ),
+    ...suggestions(context, preview: true),
     _recentOrdersHeader(),
     SellerRecentOrders(
       orders: homeRecentOrders,
@@ -1713,11 +1733,6 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       identity: true,
     ),
     ...inventory(attention: true),
-    sectionHeader(
-      'Suggested Product Bundles',
-      SellerDestination.recommendations,
-    ),
-    ...suggestions(context, preview: true),
     const SizedBox(height: 12),
     card(
       title: 'Sales Trend',
@@ -1725,11 +1740,119 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
         trend: analytics['trend'] is Map ? analytics['trend'] as Map : const {},
       ),
     ),
-    if (_banner != null) ...[
-      const SizedBox(height: 16),
-      _banner!,
-    ],
+    if (_banner != null) ...[const SizedBox(height: 16), _banner!],
   ];
+
+  Widget _salesOverviewBanner() => Material(
+    key: const ValueKey('seller-total-sales-banner'),
+    color: HomeAppColors.navy,
+    borderRadius: BorderRadius.circular(16),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: () => widget.onNavigate(SellerDestination.analytics),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Iconsax.wallet_2_copy,
+                  size: 20,
+                  color: HomeAppColors.gold,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Total Sales',
+                    style: InterTypography.sized(
+                      14,
+                      weight: 600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 24,
+                  height: 20,
+                  child: widget.salesRefreshing
+                      ? const Center(
+                          child: SizedBox(
+                            key: ValueKey('seller-sales-loading'),
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                              semanticsLabel: 'Updating sales',
+                            ),
+                          ),
+                        )
+                      : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              money(analytics['revenue']),
+              style: InterTypography.sized(
+                26,
+                weight: 700,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${analytics['label']} · Completed and paid orders',
+              style: InterTypography.sized(12, color: Colors.white),
+            ),
+            if (analytics['completed_orders'] == 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                'No completed paid sales in this period.',
+                style: InterTypography.sized(12, color: Colors.white),
+              ),
+            ],
+            if (widget.salesError != null) _salesRefreshFeedback(dark: true),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _salesRefreshFeedback({bool dark = false}) => Row(
+    key: const ValueKey('seller-sales-refresh-feedback'),
+    children: [
+      if (widget.salesRefreshing)
+        const Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              semanticsLabel: 'Updating sales',
+            ),
+          ),
+        ),
+      Expanded(
+        child: Text(
+          widget.salesError ?? 'Updating sales…',
+          style: _text(12, color: dark ? Colors.white : HomeAppColors.navy),
+        ),
+      ),
+      if (widget.salesError != null)
+        TextButton(
+          key: const ValueKey('seller-sales-retry'),
+          onPressed: widget.onSalesRetry,
+          style: TextButton.styleFrom(
+            foregroundColor: dark ? Colors.white : HomeAppColors.navy,
+          ),
+          child: const Text('Retry'),
+        ),
+    ],
+  );
 
   Widget _overviewMetricCard(
     _SellerOverviewMetric metric,
@@ -1741,11 +1864,7 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       side: const BorderSide(color: HomeAppColors.border),
     ),
     child: InkWell(
-      onTap: () => widget.onNavigate(
-        metric.title == 'Total Sales'
-            ? SellerDestination.analytics
-            : SellerDestination.orders,
-      ),
+      onTap: () => widget.onNavigate(SellerDestination.orders),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1827,48 +1946,83 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
 
   Widget salesPeriod({bool compact = false}) {
     if (compact) {
-      return Semantics(
-        value: _salesPeriods['${analytics['period']}'],
-        child: PopupMenuButton<String>(
-          tooltip: 'Filter sales period',
-          position: PopupMenuPosition.under,
-          offset: const Offset(0, 8),
-          color: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          onSelected: widget.onPeriod,
-          itemBuilder: (_) => [
-            for (final period in _salesPeriods.entries)
-              CheckedPopupMenuItem<String>(
-                value: period.key,
-                checked: period.key == '${analytics['period']}',
-                child: Text(period.value, style: _text(13, weight: 500)),
-              ),
-          ],
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 48),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: HomeAppColors.border),
+      final label =
+          _salesPeriods['${analytics['period']}'] ?? '${analytics['label']}';
+      final labelStyle = _text(12, weight: 500);
+      var controlWidth = 94.0;
+      for (final text in {..._salesPeriods.values, label}) {
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: labelStyle),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout();
+        final requiredWidth = painter.width + 46;
+        if (requiredWidth > controlWidth) controlWidth = requiredWidth;
+        painter.dispose();
+      }
+      final theme = Theme.of(context);
+      return Theme(
+        data: theme.copyWith(
+          iconTheme: theme.iconTheme.copyWith(
+            size: 14,
+            color: HomeAppColors.navy,
+          ),
+          listTileTheme: theme.listTileTheme.copyWith(
+            minLeadingWidth: 14,
+            horizontalTitleGap: 6,
+            minTileHeight: 48,
+            minVerticalPadding: 0,
+            iconColor: HomeAppColors.navy,
+          ),
+        ),
+        child: Semantics(
+          value: _salesPeriods['${analytics['period']}'],
+          child: PopupMenuButton<String>(
+            tooltip: 'Filter sales period',
+            position: PopupMenuPosition.under,
+            offset: const Offset(0, 8),
+            color: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            menuPadding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(width: controlWidth),
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: HomeAppColors.border),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    _salesPeriods['${analytics['period']}'] ??
-                        '${analytics['label']}',
-                    style: _text(12, weight: 500),
+            onSelected: widget.onPeriod,
+            itemBuilder: (_) => [
+              for (final period in _salesPeriods.entries)
+                CheckedPopupMenuItem<String>(
+                  value: period.key,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  checked: period.key == '${analytics['period']}',
+                  child: Text(period.value, style: labelStyle),
+                ),
+            ],
+            child: Container(
+              key: const ValueKey('seller-sales-period-control'),
+              width: controlWidth,
+              constraints: const BoxConstraints(minWidth: 94, minHeight: 48),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: HomeAppColors.border),
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(child: Text(label, style: labelStyle)),
+                  const SizedBox(width: 6),
+                  const Icon(
+                    Iconsax.arrow_down_1_copy,
+                    size: 16,
+                    color: HomeAppColors.navy,
                   ),
-                ),
-                const SizedBox(width: 6),
-                const Icon(
-                  Iconsax.arrow_down_1_copy,
-                  size: 16,
-                  color: HomeAppColors.navy,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1895,6 +2049,8 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
 
   List<Widget> salesAnalytics() => [
     salesPeriod(),
+    if (widget.salesRefreshing || widget.salesError != null)
+      _salesRefreshFeedback(),
     heading('Completed and Paid Orders'),
     line('Marketplace Sales', money(analytics['revenue'])),
     line('Completed Orders', analytics['completed_orders']),

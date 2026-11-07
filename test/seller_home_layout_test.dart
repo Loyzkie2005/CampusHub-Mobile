@@ -20,6 +20,7 @@ import 'seller_test_fixtures.dart';
 
 Map<String, dynamic> layoutData({int orders = 7, bool long = false}) {
   final data = sellerWorkspaceFixture();
+  if (long) (data['analytics'] as Map)['revenue'] = '1234567890123.45';
   final order = Map<String, dynamic>.from((data['orders'] as List).first);
   data['orders'] = List.generate(
     orders,
@@ -72,7 +73,6 @@ Widget content(
 );
 
 Future<void> reviewFonts(WidgetTester tester) async {
-  if (Platform.environment['SELLER_HOME_REVIEW_DIR'] == null) return;
   await tester.runAsync(() async {
     for (final font in {
       'Montserrat': 'assets/fonts/Montserrat-VariableFont_wght.ttf',
@@ -484,13 +484,68 @@ void main() {
     testWidgets('sales menu stays below its filter at $width/$scale', (
       tester,
     ) async {
+      await reviewFonts(tester);
       for (final period in ['day', '7', 'month']) {
         final data = layoutData();
         (data['analytics'] as Map)['period'] = period;
-        await show(tester, content(data), width: width, scale: scale);
+        (data['analytics'] as Map)['label'] = {
+          'day': 'Today',
+          '7': 'Last 7 Days',
+          'month': 'This Month',
+        }[period]!;
+        final capture = GlobalKey();
+        await show(
+          tester,
+          content(data),
+          width: width,
+          scale: scale,
+          capture: capture,
+        );
         final filter = find.byTooltip('Filter sales period');
         await reach(tester, filter);
         final trigger = tester.getRect(filter);
+        final surface = tester.widget<Container>(
+          find.byKey(const ValueKey('seller-sales-period-control')),
+        );
+        final decoration = surface.decoration! as BoxDecoration;
+        expect(decoration.color, Colors.white);
+        expect(decoration.borderRadius, BorderRadius.circular(50));
+        expect(decoration.border, Border.all(color: HomeAppColors.border));
+        expect(decoration.gradient, isNull);
+        expect(decoration.boxShadow, isNull);
+        expect(trigger.height, greaterThanOrEqualTo(48));
+        expect(trigger.width, greaterThanOrEqualTo(94));
+        expect(
+          trigger.right,
+          closeTo(
+            tester
+                .getRect(
+                  find.byKey(const ValueKey('seller-sales-overview-header')),
+                )
+                .right,
+            0.1,
+          ),
+        );
+        if (scale == 1) {
+          expect(trigger.width, closeTo(94, 4));
+          expect(trigger.height, 48);
+        }
+        final directory = Platform.environment['SELLER_HOME_REVIEW_DIR'];
+        if (directory != null) {
+          await tester.runAsync(() async {
+            final boundary =
+                capture.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final rendered = await boundary.toImage(pixelRatio: 1.5);
+            final bytes = await rendered.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            File(
+              '$directory/selector-$period-$width-$scale.png',
+            ).writeAsBytesSync(bytes!.buffer.asUint8List());
+            rendered.dispose();
+          });
+        }
         await tester.tap(filter);
         await tester.pumpAndSettle();
         final daily = find.widgetWithText(
@@ -501,12 +556,50 @@ void main() {
           CheckedPopupMenuItem<String>,
           'Monthly',
         );
+        final menu = find
+            .ancestor(of: daily, matching: find.byType(Material))
+            .first;
+        final menuRect = tester.getRect(menu);
+        expect(menuRect.left, closeTo(trigger.left, 0.1));
+        expect(menuRect.right, closeTo(trigger.right, 0.1));
+        final dailyLabel = find.descendant(
+          of: daily,
+          matching: find.text('Daily'),
+        );
+        final monthlyLabel = find.descendant(
+          of: monthly,
+          matching: find.text('Monthly'),
+        );
+        expect(
+          tester.getRect(dailyLabel).left,
+          closeTo(tester.getRect(monthlyLabel).left, 0.1),
+        );
+        final menuSurface = tester.widget<Material>(menu);
+        expect(menuSurface.elevation, 0);
+        expect(
+          (menuSurface.shape! as RoundedRectangleBorder).borderRadius,
+          BorderRadius.circular(12),
+        );
         expect(
           tester.getRect(daily).top,
           greaterThanOrEqualTo(trigger.bottom + 8),
         );
         expect(tester.getRect(monthly).bottom, lessThanOrEqualTo(844));
         expect(tester.takeException(), isNull);
+        if (directory != null) {
+          await tester.runAsync(() async {
+            final rendered = await captureImage(
+              tester.element(find.byType(MaterialApp)),
+            );
+            final bytes = await rendered.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            File(
+              '$directory/menu-$period-$width-$scale.png',
+            ).writeAsBytesSync(bytes!.buffer.asUint8List());
+            rendered.dispose();
+          });
+        }
         await tester.tapAt(const Offset(4, 4));
         await tester.pumpAndSettle();
       }
@@ -518,7 +611,7 @@ void main() {
     await show(tester, content(layoutData()));
     for (final (label, weight) in [
       ('Sales Overview', FontWeight.w600),
-      ('Total Sales', FontWeight.w500),
+      ('Total Sales', FontWeight.w600),
       ('₱80.00', FontWeight.w700),
     ]) {
       final style = tester.widget<Text>(find.text(label).first).style!;
@@ -730,21 +823,19 @@ void main() {
     (844.0, 390.0, 1.0),
   ]) {
     testWidgets(
-      'seller Home wraps long data at $width/$height/$scale with equal two-column KPIs',
+      'seller Home fits a full-width sales banner and adaptive order cards at $width/$height/$scale',
       (tester) async {
+        await reviewFonts(tester);
+        final capture = GlobalKey();
         await show(
           tester,
           content(layoutData(long: true)),
           width: width,
           height: height,
           scale: scale,
+          capture: capture,
         );
-        final labels = [
-          'Total Sales',
-          'Total Orders',
-          'Completed Orders',
-          'Pending Orders',
-        ];
+        final labels = ['Total Orders', 'Completed Orders', 'Pending Orders'];
         final heights = <double>[];
         for (final label in labels) {
           final text = tester.widget<Text>(find.text(label));
@@ -755,14 +846,33 @@ void main() {
           heights.add(tester.getSize(tile).height);
         }
         expect(heights.toSet().length, 1);
+        final banner = tester.getRect(
+          find.byKey(const ValueKey('seller-total-sales-banner')),
+        );
+        expect(banner.left, 16);
+        expect(banner.right, width - 16);
         expect(
           tester.getTopLeft(find.text(labels[0])).dy,
-          tester.getTopLeft(find.text(labels[1])).dy,
+          greaterThan(banner.bottom),
         );
-        expect(
-          tester.getTopLeft(find.text(labels[0])).dx,
-          lessThan(tester.getTopLeft(find.text(labels[1])).dx),
-        );
+        expect(tester.getTopLeft(find.text(labels[0])).dx, banner.left + 12);
+        expect(find.text('All-time order counts'), findsOneWidget);
+        final directory = Platform.environment['SELLER_HOME_REVIEW_DIR'];
+        if (directory != null) {
+          await tester.runAsync(() async {
+            final boundary =
+                capture.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final rendered = await boundary.toImage(pixelRatio: 1.5);
+            final bytes = await rendered.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            File(
+              '$directory/sales-$width-$scale.png',
+            ).writeAsBytesSync(bytes!.buffer.asUint8List());
+            rendered.dispose();
+          });
+        }
         await reach(tester, find.byType(PageView));
         final badge = find.byKey(const ValueKey('recent-order-status-100'));
         final header = find.byKey(const ValueKey('recent-order-header-100'));
@@ -817,9 +927,9 @@ void main() {
     );
     final sections = [
       'Sales Overview',
+      'Suggested Product Bundles',
       'Recent Orders',
       'Inventory Alerts',
-      'Suggested Product Bundles',
       'Sales Trend',
     ];
     final positions = sections

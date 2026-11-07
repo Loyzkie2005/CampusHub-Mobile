@@ -430,9 +430,9 @@ void main() {
       expect(find.byType(SellerDashboardPage), findsOneWidget);
       for (final section in [
         'Sales Overview',
+        'Suggested Product Bundles',
         'Recent Orders',
         'Inventory Alerts',
-        'Suggested Product Bundles',
         'Sales Trend',
       ]) {
         await tester.scrollUntilVisible(
