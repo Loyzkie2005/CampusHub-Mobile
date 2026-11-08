@@ -269,7 +269,11 @@ class BookingScaffold extends StatelessWidget {
         appBar: AppBar(
           leadingWidth: 56,
           leading: useFlatAppBar
-              ? const BackButton()
+              ? IconButton(
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                )
               : Padding(
                   padding: const EdgeInsets.only(left: 14),
                   child: Center(
@@ -577,8 +581,9 @@ class BookingSteps extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: fontFamily,
                       fontSize: 11,
-                      fontWeight:
-                          index == step ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: index == step
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                       fontVariations: fontFamily == 'Montserrat'
                           ? [FontVariation('wght', index == step ? 700 : 500)]
                           : null,

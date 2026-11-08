@@ -71,17 +71,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Available Services'), findsOneWidget);
+      expect(find.byKey(const ValueKey('service-search')), findsNothing);
       for (final row in rows) {
-        await tester.ensureVisible(
-          find.byKey(const ValueKey('service-search')),
-        );
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(const ValueKey('service-search')),
-          row.name,
-        );
-        await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text(row.name).last);
+        await tester.scrollUntilVisible(find.text(row.name).last, 160);
         await tester.pumpAndSettle();
         await tester.tap(find.text(row.name).last);
         await tester.pumpAndSettle();
@@ -113,41 +105,38 @@ void main() {
       }
     });
   }
-  testWidgets('loading, empty, search miss, error and retry remain distinct', (
-    tester,
-  ) async {
-    final catalog = FakeCatalog([])..pending = Completer<List<ServiceItem>>();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: ServicesPage(catalog: catalog)),
-      ),
-    );
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    catalog.pending!.complete([]);
-    await tester.pumpAndSettle();
-    expect(find.text('No services are currently available.'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-    catalog.pending = null;
-    catalog.fail = true;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: ServicesPage(catalog: catalog)),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('No services are currently available.'), findsNothing);
-    expect(find.text('Retry'), findsOneWidget);
-    catalog.fail = false;
-    catalog.rows = [record('food_analysis', 'Configured Lab')];
-    await tester.tap(find.text('Retry'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('service-search')),
-      'nonmatching search',
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('No services match your search.'), findsOneWidget);
-  });
+  testWidgets(
+    'loading, empty, error and retry remain distinct without duplicate search',
+    (tester) async {
+      final catalog = FakeCatalog([])..pending = Completer<List<ServiceItem>>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: ServicesPage(catalog: catalog)),
+        ),
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      catalog.pending!.complete([]);
+      await tester.pumpAndSettle();
+      expect(find.text('No services are currently available.'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      catalog.pending = null;
+      catalog.fail = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: ServicesPage(catalog: catalog)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('No services are currently available.'), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
+      catalog.fail = false;
+      catalog.rows = [record('food_analysis', 'Configured Lab')];
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Configured Lab'), findsOneWidget);
+      expect(find.byKey(const ValueKey('service-search')), findsNothing);
+    },
+  );
   testWidgets(
     'details revalidate active state and hide request action on failure',
     (tester) async {
@@ -169,43 +158,45 @@ void main() {
       expect(find.text('How to Request This Service'), findsOneWidget);
     },
   );
-  testWidgets('Services search and loaded state survive switching tabs', (
-    tester,
-  ) async {
-    final catalog = FakeCatalog([record('food_analysis', 'Configured Lab')]);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DashboardScreen(initialTab: 2, serviceCatalog: catalog),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('service-search')), 'Lab');
-    await tester.tap(find.byKey(const ValueKey('navbar-item-4')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('navbar-item-2')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<EditableText>(
-            find.descendant(
-              of: find.byKey(const ValueKey('service-search')),
-              matching: find.byType(EditableText),
-            ),
-          )
-          .controller
-          .text,
-      'Lab',
-    );
-    expect(find.text('Configured Lab'), findsOneWidget);
-    expect(catalog.loads, 1);
-    expect(
-      tester
-          .widget<FloatingBottomNavbar>(find.byType(FloatingBottomNavbar))
-          .currentIndex,
-      2,
-    );
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  testWidgets(
+    'Services retains loaded state and shared header search across tabs',
+    (tester) async {
+      final catalog = FakeCatalog([record('food_analysis', 'Configured Lab')]);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DashboardScreen(initialTab: 2, serviceCatalog: catalog),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('service-search')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('navbar-item-4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navbar-item-2')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('service-search')), findsNothing);
+      expect(find.text('Configured Lab'), findsOneWidget);
+      expect(catalog.loads, 1);
+      expect(
+        find.byKey(const ValueKey('dashboard-search-bar')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('dashboard-search-bar')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('catalog-search-input')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FloatingBottomNavbar>(find.byType(FloatingBottomNavbar))
+            .currentIndex,
+        2,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   for (final width in [320.0, 390.0]) {
     testWidgets('Services tab fits large text and reduced motion at $width', (
       tester,
@@ -236,12 +227,23 @@ void main() {
               rootBundle.load('packages/lucide_icons/assets/lucide.ttf'),
             );
           await icons.load();
+          for (final font in {
+            'Inter': 'assets/fonts/inter/InterVariable.ttf',
+            'Montserrat': 'assets/fonts/Montserrat-VariableFont_wght.ttf',
+            'SugarPie': 'assets/fonts/Sugar-Pie-W00-Regular.ttf',
+            'MaterialIcons': 'fonts/MaterialIcons-Regular.otf',
+          }.entries) {
+            await (FontLoader(
+              font.key,
+            )..addFont(rootBundle.load(font.value))).load();
+          }
         });
       }
       await tester.pumpWidget(
         RepaintBoundary(
           key: capture,
           child: MaterialApp(
+            debugShowCheckedModeBanner: false,
             theme: ThemeData(fontFamily: 'Roboto'),
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context).copyWith(

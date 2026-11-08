@@ -265,7 +265,7 @@ class _CampusHomeBannersState extends State<CampusHomeBanners>
         _schedule();
       },
       child: Material(
-        color: HomeAppColors.white,
+        type: MaterialType.transparency,
         child: Column(
           key: const ValueKey('home-campus-banners'),
           crossAxisAlignment: CrossAxisAlignment.stretch,

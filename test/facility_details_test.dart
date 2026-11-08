@@ -6,11 +6,16 @@ import 'dart:ui' as ui;
 import 'package:campushub/module_app/models/facility_detail_information.dart';
 import 'package:campushub/module_app/models/facility_item.dart';
 import 'package:campushub/module_app/screens/facility_details_screen.dart';
+import 'package:campushub/module_app/screens/messages_screen.dart';
+import 'package:campushub/module_app/services/chat_service.dart';
 import 'package:campushub/module_app/widgets/product_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fixtures/facility_booking_fixture.dart';
@@ -165,6 +170,249 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+    'full-width title, single Save, and safe matching bottom actions',
+    (tester) async {
+      await tester.runAsync(() async {
+        await (FontLoader('Montserrat')..addFont(
+              rootBundle.load('assets/fonts/Montserrat-VariableFont_wght.ttf'),
+            ))
+            .load();
+      });
+      for (final width in [320.0, 375.0, 390.0]) {
+        await show(
+          tester,
+          width: width,
+          data: {...detailFixture(), 'name': 'Covered Court'},
+        );
+        await tester.pumpAndSettle();
+        final title = find.byKey(const ValueKey('facility-name'));
+        final paragraph = tester.renderObject<RenderParagraph>(title);
+        expect(
+          paragraph
+              .getBoxesForSelection(
+                const TextSelection(baseOffset: 0, extentOffset: 13),
+              )
+              .map((box) => box.top)
+              .toSet(),
+          hasLength(1),
+        );
+        expect(tester.getSize(title).width, width - 40);
+        expect(
+          tester
+              .getRect(find.byKey(const ValueKey('facility-status-badge')))
+              .top,
+          greaterThan(tester.getRect(title).bottom),
+        );
+        final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+        final footer = find.byWidget(scaffold.bottomNavigationBar!);
+        final chat = find.byKey(const ValueKey('facility-chat-button'));
+        final request = find.byKey(
+          const ValueKey('facility-request-booking-button'),
+        );
+        expect(find.descendant(of: footer, matching: chat), findsOneWidget);
+        expect(
+          find.descendant(
+            of: footer,
+            matching: find.byIcon(Icons.bookmark_border_rounded),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('facility-bookmark-button')),
+          findsOneWidget,
+        );
+        expect(find.byTooltip('Save facility'), findsOneWidget);
+        expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
+        expect(tester.getSize(chat).height, tester.getSize(request).height);
+        expect(
+          tester.getSize(request).width,
+          greaterThan(tester.getSize(chat).width),
+        );
+        expect(
+          tester.getRect(chat).right,
+          lessThan(tester.getRect(request).left),
+        );
+        final chatButton = tester.widget<OutlinedButton>(chat);
+        expect(chatButton.style!.backgroundColor!.resolve({}), Colors.white);
+        expect(
+          chatButton.style!.side!.resolve({})!.color,
+          const Color(0xFF1A1851),
+        );
+        expect(tester.getRect(request).bottom, lessThanOrEqualTo(900 - 24));
+        await scrollTo(
+          tester,
+          find.byKey(const ValueKey('facility-reviews-section')),
+        );
+        expect(chat.hitTestable(), findsOneWidget);
+        expect(request.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      final longName = List.filled(
+        4,
+        'Long configured facility name',
+      ).join(' ');
+      await show(
+        tester,
+        width: 280,
+        scale: 2,
+        data: {...detailFixture(), 'name': longName},
+      );
+      await tester.pumpAndSettle();
+      final name = tester.widget<Text>(
+        find.byKey(const ValueKey('facility-name')),
+      );
+      expect(name.data, longName);
+      expect(name.maxLines, isNull);
+      expect(name.style!.fontSize, 26);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('gallery Save toggles the bookmark and survives reopening', (
+    tester,
+  ) async {
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.bookmark_border_rounded), findsOneWidget);
+    await tester.tap(iconButton('Save facility'));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+    expect(find.byTooltip('Remove saved facility'), findsOneWidget);
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<IconButton>(iconButton('Remove saved facility')).isSelected,
+      isTrue,
+    );
+    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+    await tester.tap(iconButton('Remove saved facility'));
+    await tester.pumpAndSettle();
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.bookmark_border_rounded), findsOneWidget);
+    expect(
+      (await SharedPreferences.getInstance()).getBool(
+        'facility_favorite_DETAIL-FIXTURE',
+      ),
+      isFalse,
+    );
+  });
+
+  testWidgets('single photo keeps Save and Back without a numeric counter', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      data: {
+        ...detailFixture(),
+        'images': ['data:image/png;base64,invalid'],
+      },
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('facility-image-counter')), findsNothing);
+    expect(find.text('1 / 1'), findsNothing);
+    expect(find.byType(PageView), findsOneWidget);
+    expect(iconButton('Back'), findsOneWidget);
+    expect(iconButton('Save facility'), findsOneWidget);
+    expect(iconButton('Next facility photo'), findsNothing);
+  });
+
+  for (final mode in ['slot', 'room']) {
+    testWidgets('$mode action opens the existing facility messaging workflow', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'campushub_chat_token': 'test-only-facility-token',
+        'campushub_logged_user': jsonEncode({
+          'id': 900,
+          'full_name': 'Fixture Client',
+          'user_type': 'student',
+        }),
+      });
+      addTearDown(() => ChatService.instance.disconnect());
+      final requests = <http.Request>[];
+      await http.runWithClient(
+        () async {
+          await show(tester, data: {...detailFixture(), 'booking_mode': mode});
+          await tester.pumpAndSettle();
+          final action = find.byKey(
+            ValueKey(
+              mode == 'slot'
+                  ? 'facility-chat-button'
+                  : 'facility-request-booking-button',
+            ),
+          );
+          expect(
+            find.text(mode == 'slot' ? 'Chat' : 'Message Admin'),
+            findsOneWidget,
+          );
+          if (mode == 'room') {
+            expect(
+              find.byKey(const ValueKey('facility-chat-button')),
+              findsNothing,
+            );
+          }
+          await tester.tap(action);
+          await tester.pump();
+          // The normal WebSocket attempt is unavailable in a widget test. Its
+          // existing timeout still allows the HTTP-backed conversation to open.
+          await tester.pump(const Duration(seconds: 9));
+          await tester.pumpAndSettle();
+          await ChatService.instance.disconnect();
+          expect(
+            requests.where(
+              (r) => r.url.path == '/api/mobile/facilities/contact/',
+            ),
+            hasLength(1),
+          );
+          final create = requests.singleWhere(
+            (r) => r.method == 'POST' && r.url.path.endsWith('/conversations'),
+          );
+          final body = jsonDecode(create.body) as Map;
+          expect(body['context_key'], 'facility:DETAIL-FIXTURE');
+          expect(body['participant']['actor_key'], 'admin:fixture');
+          expect(find.byType(ChatConversationScreen), findsOneWidget);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        },
+        () => MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/facilities/contact/')) {
+            return http.Response(
+              jsonEncode({
+                'actor_key': 'admin:fixture',
+                'name': 'Fixture Facilities Admin',
+              }),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/conversations')) {
+            return http.Response(
+              jsonEncode({
+                'conversation': {
+                  'id': 42,
+                  'title': 'Fixture Facilities Admin',
+                  'participants': [
+                    {
+                      'actor_key': 'admin:fixture',
+                      'display_name': 'Fixture Facilities Admin',
+                    },
+                  ],
+                  'updated_at': '2026-11-05T08:00:00Z',
+                },
+              }),
+              200,
+            );
+          }
+          return http.Response('{"conversations":[],"messages":[]}', 200);
+        }),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('one continuous page follows the brief and retains saved data', (
     tester,
   ) async {
@@ -174,10 +422,10 @@ void main() {
     expect(find.byType(Tab), findsNothing);
     expect(find.text('Chat'), findsOneWidget);
     expect(find.byTooltip('Chat with Facilities Admin'), findsOneWidget);
-    expect(find.byIcon(Icons.chat_outlined), findsOneWidget);
+    expect(find.byIcon(LucideIcons.messageCircle), findsOneWidget);
     expect(
       tester.getRect(find.text('Chat')).left,
-      greaterThan(tester.getRect(find.byIcon(Icons.chat_outlined)).right),
+      greaterThan(tester.getRect(find.byIcon(LucideIcons.messageCircle)).right),
     );
     expect(find.byType(Divider), findsNothing);
     final back = tester.widget<IconButton>(iconButton('Back'));
@@ -320,18 +568,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(iconButton('Back').hitTestable(), findsNothing);
       expect(
-        find.byKey(const ValueKey('facility-favorite-button')).hitTestable(),
+        find.byKey(const ValueKey('facility-bookmark-button')).hitTestable(),
         findsNothing,
       );
       scrollable.position.jumpTo(0);
       await tester.pumpAndSettle();
-      final favorite = find.byKey(const ValueKey('facility-favorite-button'));
+      final favorite = find.byKey(const ValueKey('facility-bookmark-button'));
       await tester.tap(favorite);
       await tester.pumpAndSettle();
-      expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+      expect(find.byTooltip('Remove saved facility'), findsOneWidget);
       await tester.tap(favorite);
       await tester.pumpAndSettle();
-      expect(find.byTooltip('Add to favorites'), findsOneWidget);
+      expect(find.byTooltip('Save facility'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -598,7 +846,7 @@ void main() {
         expect(find.byIcon(Icons.more_horiz), findsNothing);
         expect(find.byType(TabBar), findsNothing);
         expect(find.text('Check Availability'), findsNothing);
-        final heart = find.byKey(const ValueKey('facility-favorite-button'));
+        final heart = find.byKey(const ValueKey('facility-bookmark-button'));
         final heartRect = tester.getRect(heart);
         expect(heartRect.top, greaterThanOrEqualTo(24));
         expect(heartRect.size.shortestSide, greaterThanOrEqualTo(48));
@@ -609,7 +857,7 @@ void main() {
         expect(tester.getRect(button).bottom, lessThanOrEqualTo(height - 24));
         await tester.tap(heart);
         await tester.pumpAndSettle();
-        expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+        expect(find.byTooltip('Remove saved facility'), findsOneWidget);
         expect(
           (await SharedPreferences.getInstance()).getBool(
             'facility_favorite_DETAIL-FIXTURE',
@@ -773,11 +1021,22 @@ void main() {
           ...detailFixture(),
           'facility_type': 'hostel',
           'booking_mode': 'room',
+          'status': 'maintenance',
         },
         service: service,
       );
       await tester.pumpAndSettle();
-      expect(find.text('Request Booking'), findsOneWidget);
+      expect(find.text('Request Booking'), findsNothing);
+      expect(find.text('Message Admin'), findsOneWidget);
+      expect(find.byKey(const ValueKey('facility-chat-button')), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('facility-request-booking-button')),
+            )
+            .onPressed,
+        isNotNull,
+      );
       expect(service.reads, 0);
       expect(tester.takeException(), isNull);
     },
@@ -865,7 +1124,7 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 150)),
     );
     await tester.pumpAndSettle();
-    expect(find.text('1 / 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('facility-image-counter')), findsNothing);
     expect(
       tester
           .getSize(find.byKey(const ValueKey('facility-carousel-dot-0')))
@@ -937,7 +1196,8 @@ void main() {
     );
     await tester.drag(find.byType(PageView), const Offset(-350, 0));
     await tester.pumpAndSettle();
-    expect(find.text('2 / 2'), findsOneWidget);
+    expect(find.text('2 / 2'), findsNothing);
+    expect(tester.widget<PageView>(find.byType(PageView)).controller!.page, 1);
     expect(
       tester
           .getSize(find.byKey(const ValueKey('facility-carousel-dot-1')))
@@ -967,18 +1227,14 @@ void main() {
             key.value.startsWith('facility-carousel-dot-');
       });
       expect(dots, findsNWidgets(5));
-      expect(find.text('1 / 23'), findsOneWidget);
+      expect(find.text('1 / 23'), findsNothing);
       expect(
         tester
             .widget<IconButton>(iconButton('Previous facility photo'))
             .onPressed,
         isNull,
       );
-      for (final tooltip in [
-        'Back',
-        'Add to favorites',
-        'Next facility photo',
-      ]) {
+      for (final tooltip in ['Back', 'Save facility', 'Next facility photo']) {
         final control = tester.widget<IconButton>(iconButton(tooltip));
         expect(control.style!.backgroundColor!.resolve({}), Colors.transparent);
         expect(
@@ -988,13 +1244,15 @@ void main() {
       }
       await tester.tap(iconButton('Next facility photo'));
       await tester.pumpAndSettle();
-      expect(find.text('2 / 23'), findsOneWidget);
+      expect(find.text('2 / 23'), findsNothing);
       final controller = tester
           .widget<PageView>(find.byType(PageView))
           .controller!;
+      expect(controller.page, 1);
       controller.jumpToPage(11);
       await tester.pumpAndSettle();
-      expect(find.text('12 / 23'), findsOneWidget);
+      expect(find.text('12 / 23'), findsNothing);
+      expect(controller.page, 11);
       expect(dots, findsNWidgets(5));
       expect(
         find.byKey(const ValueKey('facility-carousel-dot-11')),
@@ -1006,10 +1264,12 @@ void main() {
       );
       await tester.tap(iconButton('Previous facility photo'));
       await tester.pumpAndSettle();
-      expect(find.text('11 / 23'), findsOneWidget);
+      expect(find.text('11 / 23'), findsNothing);
+      expect(controller.page, 10);
       controller.jumpToPage(22);
       await tester.pumpAndSettle();
-      expect(find.text('23 / 23'), findsOneWidget);
+      expect(find.text('23 / 23'), findsNothing);
+      expect(controller.page, 22);
       expect(
         tester.widget<IconButton>(iconButton('Next facility photo')).onPressed,
         isNull,
@@ -1021,7 +1281,7 @@ void main() {
       await tester.pumpAndSettle();
       for (final tooltip in [
         'Back',
-        'Add to favorites',
+        'Save facility',
         'Previous facility photo',
         'Next facility photo',
       ]) {
@@ -1045,8 +1305,15 @@ void main() {
     final bookmark = find.byKey(const ValueKey('facility-bookmark-button'));
     await tester.tap(bookmark);
     await tester.pumpAndSettle();
-    expect(tester.widget<IconButton>(bookmark).isSelected, isTrue);
-    expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(of: bookmark, matching: find.byType(IconButton)),
+          )
+          .isSelected,
+      isTrue,
+    );
+    expect(find.byTooltip('Remove saved facility'), findsOneWidget);
     expect(
       (await SharedPreferences.getInstance()).getBool(
         'facility_favorite_DETAIL-FIXTURE',
@@ -1065,9 +1332,21 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('facility-rates-toggle')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('facility-rate-details')), findsNothing);
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
     await tester.tap(bookmark);
     await tester.pumpAndSettle();
-    expect(tester.widget<IconButton>(bookmark).isSelected, isFalse);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(of: bookmark, matching: find.byType(IconButton)),
+          )
+          .isSelected,
+      isFalse,
+    );
     expect(
       (await SharedPreferences.getInstance()).getBool(
         'facility_favorite_DETAIL-FIXTURE',
@@ -1079,7 +1358,7 @@ void main() {
         .position
         .jumpTo(0);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Add to favorites'), findsOneWidget);
+    expect(find.byTooltip('Save facility'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1113,7 +1392,7 @@ void main() {
       final gallery = find.byKey(const ValueKey('facility-hero-gallery'));
       expect(tester.getTopLeft(surface).dy, tester.getRect(gallery).bottom);
       expect(tester.widget<ColoredBox>(surface).color, Colors.white);
-      for (final tooltip in ['Back', 'Add to favorites']) {
+      for (final tooltip in ['Back', 'Save facility']) {
         final backing = find
             .ancestor(
               of: iconButton(tooltip),
@@ -1217,6 +1496,14 @@ void main() {
         );
         expect(
           find.byKey(const ValueKey('facility-chat-button')),
+          screen.facility.supportsSlotBooking ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.text(
+            screen.facility.supportsSlotBooking
+                ? 'Request Booking'
+                : 'Message Admin',
+          ),
           findsOneWidget,
         );
         final section = find.byKey(const ValueKey('facility-amenities-card'));
@@ -1319,6 +1606,7 @@ void main() {
         tester,
         data: {
           ...detailFixture(),
+          'name': 'Covered Court',
           'images': [url, url],
           'amenities': ['Fans', 'Stage', 'Sound System', 'Pickleball Net'],
         },

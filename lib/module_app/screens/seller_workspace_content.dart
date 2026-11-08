@@ -362,6 +362,11 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       widget.onReload();
     } catch (error) {
       if (mounted) {
+        if (error is SellerApplicationException &&
+            [401, 403].contains(error.statusCode)) {
+          Navigator.of(context).pop();
+          widget.onReload();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1246,7 +1251,7 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       title: '${item['product_name']}',
       child: Column(
         children: [
-          if (fullProductDetails && image.isNotEmpty) ...[
+          if (fullProductDetails) ...[
             Align(
               alignment: Alignment.centerLeft,
               child: SizedBox(
@@ -1281,22 +1286,35 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
   }) => detail(context, 'Order ${row['code']}', [
     line(
       'Customer',
-      '${row['buyer_name']}'.isEmpty ? 'Not recorded' : row['buyer_name'],
+      '${row['buyer_full_name'] ?? row['buyer_name'] ?? ''}'.trim().isEmpty
+          ? 'Not recorded'
+          : row['buyer_full_name'] ?? row['buyer_name'],
     ),
     line('Order Status', row['status']),
-    line('Payment Status', row['payment_status']),
-    line('Receiving Method', row['fulfillment_label'] ?? 'Not recorded'),
-    line('Receiving Progress', row['fulfillment_progress'] ?? row['status']),
+    line('Payment Status', _recordedOrderValue(row['payment_status'])),
+    line('Order Date', date(row['created_at'])),
+    line('Receiving Method', _recordedOrderValue(row['fulfillment_label'])),
+    line(
+      'Receiving Progress',
+      _recordedOrderValue(row['fulfillment_progress'] ?? row['status']),
+    ),
     if (row['fulfillment_method'] == 'seller_delivery') ...[
-      line('Delivery Destination', row['delivery_destination']),
+      line(
+        'Delivery Destination',
+        _recordedOrderValue(row['delivery_destination']),
+      ),
       line('Seller Delivery Started', date(row['delivery_started_at'])),
       line('Delivered', date(row['delivered_at'])),
     ],
     line(
       'Payment Method',
-      row['fulfillment_method'] == 'seller_delivery'
-          ? 'Cash — recorded separately'
-          : 'Cash on Pickup',
+      _recordedOrderValue(row['payment_method_label']) != 'Not recorded'
+          ? row['payment_method_label']
+          : switch (row['fulfillment_method']) {
+              'seller_delivery' => 'Cash on Delivery',
+              'pickup' => 'Cash on Pickup',
+              _ => 'Not recorded',
+            },
     ),
     line('Total', money(row['total'])),
     if (row['fulfillment_method'] != 'seller_delivery')
@@ -1311,6 +1329,9 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
       _orderDetailItem(row, entry.$2, entry.$1, fullProductDetails),
     _orderProgressAction(row),
   ]);
+
+  String _recordedOrderValue(Object? value) =>
+      '${value ?? ''}'.trim().isEmpty ? 'Not recorded' : '$value';
 
   List<Widget> orders(BuildContext context, {bool preview = false}) {
     final page = (widget.data['orders_page'] as num?)?.toInt() ?? 1;

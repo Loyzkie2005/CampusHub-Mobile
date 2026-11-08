@@ -47,7 +47,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(find.text('Welcome Back, Ana'), findsOneWidget);
+          expect(find.text('Welcome Back,'), findsOneWidget);
           expect(find.byType(FloatingBottomNavbar), findsOneWidget);
           expect(tester.takeException(), isNull);
           // Only the optional Home caller handles it; explicit chat requests must

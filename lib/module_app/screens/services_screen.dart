@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons/lucide_icons.dart';
 import '../models/service_item.dart';
 import '../routes/app_routes.dart';
 import '../services/service_catalog.dart';
@@ -19,7 +18,6 @@ class _ServicesPageState extends State<ServicesPage> {
   List<ServiceItem> _services = [];
   bool _loading = true;
   String? _error;
-  String _query = '';
   @override
   void initState() {
     super.initState();
@@ -48,13 +46,6 @@ class _ServicesPageState extends State<ServicesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final rows = _services
-        .where(
-          (row) => '${row.name} ${row.category} ${row.facility.description}'
-              .toLowerCase()
-              .contains(_query.toLowerCase().trim()),
-        )
-        .toList();
     return RefreshIndicator(
       onRefresh: _load,
       color: bookingNavy,
@@ -77,24 +68,6 @@ class _ServicesPageState extends State<ServicesPage> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            key: const ValueKey('service-search'),
-            style: const TextStyle(color: bookingNavy),
-            onChanged: (value) => setState(() => _query = value),
-            decoration: InputDecoration(
-              labelText: 'Search services',
-              hintText: 'Search by service name or category',
-              filled: true,
-              fillColor: Colors.white,
-              labelStyle: const TextStyle(color: bookingMuted),
-              hintStyle: const TextStyle(color: bookingMuted),
-              prefixIcon: const Icon(LucideIcons.search, color: bookingNavy),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
           const Text(
             'Available Services',
             style: TextStyle(fontWeight: FontWeight.w700, color: bookingNavy),
@@ -118,15 +91,10 @@ class _ServicesPageState extends State<ServicesPage> {
                 style: TextStyle(color: bookingMuted),
               ),
             )
-          else if (rows.isEmpty)
-            const Text(
-              'No services match your search.',
-              style: TextStyle(color: bookingMuted),
-            )
           else
             ResourceCardGrid(
               children: [
-                for (final row in rows)
+                for (final row in _services)
                   ServicePreviewCard(
                     service: row,
                     catalog: widget.catalog,

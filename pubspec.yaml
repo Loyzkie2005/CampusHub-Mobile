@@ -38,7 +38,9 @@ dependencies:
   webview_flutter: ^4.14.1
   shared_preferences: ^2.3.2
   web_socket_channel: ^3.0.3
-  lucide_icons: ^0.257.0
+  # Preserve existing glyphs while supporting Flutter's final IconData class.
+  lucide_icons:
+    path: packages/lucide_icons
   google_fonts: ^8.2.1
   iconsax_flutter: 1.0.1
   image_picker: 1.2.3

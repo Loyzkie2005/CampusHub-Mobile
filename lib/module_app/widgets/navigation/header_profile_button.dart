@@ -15,6 +15,8 @@ class HeaderProfileButton extends StatelessWidget {
     this.nameKey,
     this.greeting,
     this.actionLabel,
+    this.outlinedAvatar = false,
+    this.onDarkSurface = false,
   });
 
   final AuthUser? user;
@@ -26,6 +28,8 @@ class HeaderProfileButton extends StatelessWidget {
 
   /// Overrides the profile action's tooltip and spoken purpose for drawer use.
   final String? actionLabel;
+  final bool outlinedAvatar;
+  final bool onDarkSurface;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +44,11 @@ class HeaderProfileButton extends StatelessWidget {
       key: nameKey,
       maxLines: greeting == null ? 2 : 1,
       overflow: TextOverflow.ellipsis,
-      style: ProfileStyle.identityText(14, weight: 600),
+      style: ProfileStyle.identityText(
+        14,
+        weight: 600,
+        color: onDarkSurface ? Colors.white : HomeAppColors.navy,
+      ),
     );
     return Tooltip(
       message: actionLabel ?? label,
@@ -58,25 +66,30 @@ class HeaderProfileButton extends StatelessWidget {
               child: ExcludeSemantics(
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      key: avatarKey,
-                      radius: 18,
-                      backgroundColor: HomeAppColors.navy,
-                      foregroundColor: Colors.white,
-                      foregroundImage: photo.isEmpty
-                          ? null
-                          : NetworkImage(photo),
-                      onForegroundImageError: photo.isEmpty ? null : (_, _) {},
-                      child: name.isEmpty
-                          ? const Icon(Iconsax.user_copy, size: 20)
-                          : Text(
-                              name.characters.first.toUpperCase(),
-                              style: ProfileStyle.identityText(
-                                14,
-                                weight: 600,
-                                color: Colors.white,
+                    _ProfileAvatarOutline(
+                      enabled: outlinedAvatar,
+                      child: CircleAvatar(
+                        key: avatarKey,
+                        radius: 18,
+                        backgroundColor: HomeAppColors.navy,
+                        foregroundColor: Colors.white,
+                        foregroundImage: photo.isEmpty
+                            ? null
+                            : NetworkImage(photo),
+                        onForegroundImageError: photo.isEmpty
+                            ? null
+                            : (_, _) {},
+                        child: name.isEmpty
+                            ? const Icon(Iconsax.user_copy, size: 20)
+                            : Text(
+                                name.characters.first.toUpperCase(),
+                                style: ProfileStyle.identityText(
+                                  14,
+                                  weight: 600,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -92,7 +105,9 @@ class HeaderProfileButton extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: ProfileStyle.identityText(
                                     12,
-                                    color: ProfileStyle.secondary,
+                                    color: onDarkSurface
+                                        ? Colors.white
+                                        : ProfileStyle.secondary,
                                   ),
                                 ),
                                 nameText,
@@ -104,6 +119,36 @@ class HeaderProfileButton extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileAvatarOutline extends StatelessWidget {
+  const _ProfileAvatarOutline({required this.enabled, required this.child});
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return DecoratedBox(
+      key: const ValueKey('header-profile-outline'),
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: SweepGradient(
+          colors: [HomeAppColors.navy, HomeAppColors.gold, HomeAppColors.navy],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+          ),
+          child: Padding(padding: const EdgeInsets.all(2), child: child),
         ),
       ),
     );

@@ -2,22 +2,30 @@ import 'package:campushub/module_app/models/facility_item.dart';
 import 'package:campushub/module_app/services/facility_booking_service.dart';
 
 // Isolated UI test data. Never imported by the application.
-final testFacility = FacilityItem.fromJson({
-  'id': 'TEST-COURT',
-  'name': 'Test Covered Court',
-  'facility_type': 'covered_court',
-  'status': 'available',
-  'capacity': 50,
-  'rate': '500.00',
-  'price_type': 'hour',
-  'booking_mode': 'slot',
-  'image_url': '',
-  'location': 'Test Sports Complex',
-  'job_order_service': 'Facility Rental',
-  'description': 'Facility description for layout verification.',
-  'amenities': ['Basketball Court', 'Sound System', 'Lighting'],
-  'terms_conditions': 'Observe the facility rules and your approved schedule.',
-});
+final testFacility = testFacilityWithRequirements([
+  'Basketball Court',
+  'Sound System',
+  'Lighting',
+]);
+
+FacilityItem testFacilityWithRequirements(List<String> requirements) =>
+    FacilityItem.fromJson({
+      'id': 'TEST-COURT',
+      'name': 'Test Covered Court',
+      'facility_type': 'covered_court',
+      'status': 'available',
+      'capacity': 50,
+      'rate': '500.00',
+      'price_type': 'hour',
+      'booking_mode': 'slot',
+      'image_url': '',
+      'location': 'Test Sports Complex',
+      'job_order_service': 'Facility Rental',
+      'description': 'Facility description for layout verification.',
+      'amenities': requirements,
+      'terms_conditions':
+          'Observe the facility rules and your approved schedule.',
+    });
 
 class TestBookingService extends FacilityBookingService {
   bool conflict = false;

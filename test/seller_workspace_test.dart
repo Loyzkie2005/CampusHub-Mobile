@@ -575,7 +575,8 @@ void main() {
       expect(find.text('TEST-ORDER'), findsOneWidget);
       await tester.tap(find.text('TEST-ORDER'));
       await tester.pumpAndSettle();
-      expect(find.text('Cash on Pickup'), findsOneWidget);
+      expect(find.text('Cash on Pickup'), findsNothing);
+      expect(find.text('Not recorded'), findsWidgets);
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(service.loads, 1);

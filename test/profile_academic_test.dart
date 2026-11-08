@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:campushub/module_app/screens/profile_setup_screen.dart';
 import 'package:campushub/module_app/services/auth_service.dart';
 import 'package:campushub/module_app/session/session_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -134,4 +138,120 @@ void main() {
       expect(tester.takeException(), isNull);
     }, () => MockClient((request) async => http.Response('Unavailable', 503)));
   });
+
+  for (final (width, scale, keyboard) in [
+    (390.0, 1.0, 0.0),
+    (320.0, 2.0, 260.0),
+  ]) {
+    testWidgets(
+      'onboarding actions stay at the safe bottom above the keyboard at $width/$scale',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+        addTearDown(tester.view.reset);
+        final capture = GlobalKey();
+        final directory = Platform.environment['PROFILE_SETUP_REVIEW_DIR'];
+        if (directory != null) {
+          await tester.runAsync(() async {
+            await (FontLoader('Inter')..addFont(
+                  rootBundle.load('assets/fonts/inter/InterVariable.ttf'),
+                ))
+                .load();
+            await (FontLoader('MaterialIcons')
+                  ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf')))
+                .load();
+          });
+        }
+        Future<void> checkAction(String name) async {
+          final button = find.byKey(
+            const ValueKey('profile-setup-primary-action'),
+          );
+          expect(button, findsOneWidget);
+          final bounds = tester.getRect(button);
+          expect(
+            bounds.bottom,
+            lessThanOrEqualTo(844 - tester.view.viewInsets.bottom),
+          );
+          expect(
+            bounds.bottom,
+            greaterThan(844 - tester.view.viewInsets.bottom - 70),
+          );
+          expect(bounds.height, greaterThanOrEqualTo(52));
+          expect(bounds.left, greaterThanOrEqualTo(22));
+          expect(bounds.right, lessThanOrEqualTo(width - 22));
+          expect(
+            tester.widget<Scaffold>(find.byType(Scaffold)).bottomNavigationBar,
+            isNotNull,
+          );
+          expect(tester.takeException(), isNull);
+          if (directory != null) {
+            await tester.runAsync(() async {
+              final boundary =
+                  capture.currentContext!.findRenderObject()!
+                      as RenderRepaintBoundary;
+              final rendered = await boundary.toImage(pixelRatio: 1);
+              final bytes = await rendered.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              Directory(directory).createSync(recursive: true);
+              File(
+                '$directory/$name-${width.toInt()}.png',
+              ).writeAsBytesSync(bytes!.buffer.asUint8List());
+              rendered.dispose();
+            });
+          }
+        }
+
+        await http.runWithClient(
+          () async {
+            await tester.pumpWidget(
+              RepaintBoundary(
+                key: capture,
+                child: MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  theme: ThemeData(fontFamily: 'Inter'),
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(textScaler: TextScaler.linear(scale)),
+                    child: child!,
+                  ),
+                  home: const ProfileSetupScreen(),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await checkAction('account-type');
+            await tester.tap(find.text('Next'));
+            await tester.pumpAndSettle();
+            expect(
+              find.text('Select an account type to continue.'),
+              findsOneWidget,
+            );
+            await tester.tap(find.byType(DropdownButtonFormField<String>));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Guest / Visitor').last);
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Next'));
+            await tester.pumpAndSettle();
+            tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+            await tester.pumpAndSettle();
+            await checkAction('contact');
+            await tester.tap(find.text('Finish'));
+            await tester.pumpAndSettle();
+            expect(
+              find.text('Enter a valid Philippine mobile number.'),
+              findsOneWidget,
+            );
+            expect(find.text('Enter your phone number'), findsOneWidget);
+            await tester.pumpWidget(const SizedBox.shrink());
+          },
+          () => MockClient(
+            (request) async => http.Response(jsonEncode(masters), 200),
+          ),
+        );
+      },
+    );
+  }
 }

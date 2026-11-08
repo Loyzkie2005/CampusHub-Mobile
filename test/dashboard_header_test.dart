@@ -5,11 +5,14 @@ import 'package:campushub/module_app/screens/dashboard_screen.dart';
 import 'package:campushub/module_app/screens/profile_page.dart';
 import 'package:campushub/module_app/widgets/home/home_preview_cards.dart';
 import 'package:campushub/module_app/widgets/product_image.dart';
+import 'package:campushub/module_app/widgets/navigation/seller_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'home_test_fixtures.dart';
 
 void main() {
@@ -97,7 +100,22 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Welcome Back, Lester'), findsOneWidget);
+      expect(find.text('Welcome Back,'), findsOneWidget);
+      expect(find.text('Welcome Back, Lester'), findsNothing);
+      expect(find.byIcon(Iconsax.menu_1_copy), findsNothing);
+      final header = find.byKey(const ValueKey('dashboard-brand-header'));
+      expect(
+        find.descendant(of: header, matching: find.text('Welcome Back,')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getRect(find.text('Welcome Back,')).bottom,
+        lessThanOrEqualTo(
+          tester
+              .getRect(find.byKey(const ValueKey('dashboard-profile-name')))
+              .top,
+        ),
+      );
       // At 2x text, this header-only viewport leaves lazy cards below the fold.
       if (scale == 1) {
         final productCard = tester.widget<Container>(
@@ -131,17 +149,44 @@ void main() {
             matching: find.byType(IconButton),
           )
           .first;
-      final searchButton = find
-          .ancestor(
-            of: find.byTooltip('Search'),
-            matching: find.byType(IconButton),
-          )
-          .first;
+      final searchButton = find.byKey(const ValueKey('dashboard-search-bar'));
       expect(find.byTooltip('Open Profile'), findsNothing);
       expect(
-        tester.getRect(searchButton).right,
-        lessThanOrEqualTo(tester.getRect(notificationButton).left),
+        tester.getRect(searchButton).top,
+        greaterThanOrEqualTo(tester.getRect(notificationButton).bottom),
       );
+      expect(find.text('Search CampusHub...'), findsOneWidget);
+      expect(
+        tester
+            .widget<Container>(
+              find.byKey(const ValueKey('dashboard-brand-header')),
+            )
+            .color,
+        Colors.transparent,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('dashboard-profile-name')))
+            .style!
+            .color,
+        Colors.white,
+      );
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+        Colors.white,
+      );
+      expect(
+        find.byKey(const ValueKey('header-profile-outline')),
+        findsOneWidget,
+      );
+      expect(find.byIcon(LucideIcons.shoppingCart), findsNothing);
+      expect(
+        find.byKey(const ValueKey('seller-header-gradient')),
+        findsOneWidget,
+      );
+      expect(tester.getRect(searchButton).left, 20);
+      expect(tester.getRect(searchButton).right, width - 20);
+      expect(find.byTooltip('Cart'), findsNothing);
       expect(
         tester.getSize(notificationButton).shortestSide,
         greaterThanOrEqualTo(48),
@@ -150,7 +195,7 @@ void main() {
         tester
             .getRect(find.byKey(const ValueKey('dashboard-profile-name')))
             .right,
-        lessThanOrEqualTo(tester.getRect(searchButton).left),
+        lessThanOrEqualTo(tester.getRect(notificationButton).left),
       );
       expect(find.text('Hot'), findsNothing);
       expect(find.text('New'), findsNothing);
@@ -194,6 +239,16 @@ void main() {
       tester.state<NavigatorState>(find.byType(Navigator).first).pop();
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('dashboard-profile-name')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.state<ScaffoldState>(find.byType(Scaffold).first).isDrawerOpen,
+        isTrue,
+      );
+      expect(find.byType(CampusHubDrawer), findsOneWidget);
+      expect(find.byKey(const ValueKey('seller-menu-products')), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('navbar-item-4')));
       await tester.pumpAndSettle();
       expect(find.byType(ProfilePage), findsOneWidget);
       expect(tester.takeException(), isNull);

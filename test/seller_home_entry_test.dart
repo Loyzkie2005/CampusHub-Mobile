@@ -74,6 +74,7 @@ Future<void> loadHomeReviewFonts() async {
     'MaterialIcons': 'fonts/MaterialIcons-Regular.otf',
     'packages/iconsax_flutter/FlutterIconsax':
         'packages/iconsax_flutter/fonts/FlutterIconsax.ttf',
+    'packages/lucide_icons/Lucide': 'packages/lucide_icons/assets/lucide.ttf',
   }.entries) {
     await (FontLoader(font.key)..addFont(rootBundle.load(font.value))).load();
   }
@@ -142,6 +143,7 @@ void main() {
       if (directory != null) await tester.runAsync(loadHomeReviewFonts);
       await tester.pumpWidget(
         MaterialApp(
+          theme: directory != null ? ThemeData(fontFamily: 'Inter') : null,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(
               context,
@@ -153,16 +155,33 @@ void main() {
       );
       await tester.pumpAndSettle();
       final header = find.byKey(const ValueKey('dashboard-brand-header'));
+      expect(
+        find.byKey(const ValueKey('seller-header-gradient')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('header-profile-outline')),
+        findsOneWidget,
+      );
+      final prompt = find.text('Search CampusHub...');
+      expect(prompt, findsOneWidget);
+      expect(tester.widget<Text>(prompt).style!.fontFamily, 'Montserrat');
+      expect(
+        find.ancestor(of: prompt, matching: find.byType(ImageFiltered)),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(
+          of: find.byType(HeaderProfileButton),
+          matching: find.byType(ImageFiltered),
+        ),
+        findsNothing,
+      );
       final identity = find.byType(HeaderProfileButton);
       final avatar = find.byKey(const ValueKey('dashboard-profile-avatar'));
       final name = find.byKey(const ValueKey('dashboard-profile-name'));
       final greeting = find.text('Welcome Back,');
-      final search = find
-          .ancestor(
-            of: find.byTooltip('Search'),
-            matching: find.byType(IconButton),
-          )
-          .first;
+      final search = find.byKey(const ValueKey('dashboard-search-bar'));
       final notifications = find
           .ancestor(
             of: find.byTooltip('Notifications'),
@@ -183,7 +202,7 @@ void main() {
       expect(nameText.overflow, TextOverflow.ellipsis);
       expect(nameText.style!.fontFamily, 'Montserrat');
       expect(nameText.style!.fontWeight, FontWeight.w600);
-      expect(nameText.style!.color, const Color(0xFF1A1851));
+      expect(nameText.style!.color, Colors.white);
       expect(
         tester.getRect(greeting).bottom,
         lessThanOrEqualTo(tester.getRect(name).top),
@@ -196,16 +215,13 @@ void main() {
       expect(tester.getRect(identity).left, greaterThanOrEqualTo(18));
       expect(
         tester.getRect(name).right,
-        lessThanOrEqualTo(tester.getRect(search).left),
-      );
-      expect(
-        tester.getRect(search).right,
         lessThanOrEqualTo(tester.getRect(notifications).left),
       );
       expect(
-        tester.getRect(search).center.dy,
-        closeTo(tester.getRect(notifications).center.dy, 1),
+        tester.getRect(search).top,
+        greaterThanOrEqualTo(tester.getRect(identity).bottom),
       );
+      expect(find.byTooltip('Cart'), findsNothing);
       for (final target in [identity, search, notifications]) {
         expect(tester.getSize(target).shortestSide, greaterThanOrEqualTo(48));
       }
@@ -267,12 +283,62 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
 
-      // Other tabs keep the existing hamburger/profile shortcut header.
-      await tester.tap(find.byKey(const ValueKey('navbar-item-2')));
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Iconsax.menu_1_copy), findsOneWidget);
-      expect(greeting, findsNothing);
-      expect(find.byTooltip('View profile: $fullName'), findsOneWidget);
+      // Every seller tab uses the same identity, drawer action and search bar.
+      for (final index in width == 390 && scale == 1 ? [1, 2, 3, 4] : [2]) {
+        if (index == 4) {
+          await tester.tap(avatar);
+          await tester.pumpAndSettle();
+          final profile = find.descendant(
+            of: drawer,
+            matching: find.byTooltip('Open Profile'),
+          );
+          await tester.ensureVisible(profile);
+          await tester.tap(profile);
+        } else {
+          await tester.tap(find.byKey(ValueKey('navbar-item-$index')));
+        }
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Iconsax.menu_1_copy), findsNothing);
+        expect(greeting, findsOneWidget);
+        expect(find.byTooltip('Open menu'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('seller-header-gradient')),
+          findsOneWidget,
+        );
+        final gradient =
+            tester
+                    .widget<DecoratedBox>(
+                      find.byKey(const ValueKey('seller-header-gradient')),
+                    )
+                    .decoration
+                as BoxDecoration;
+        expect((gradient.gradient! as LinearGradient).stops, [
+          0,
+          .12,
+          .3,
+          .55,
+          1,
+        ]);
+        expect(
+          find.byKey(const ValueKey('header-profile-outline')),
+          findsOneWidget,
+        );
+        expect(find.text('Search CampusHub...'), findsOneWidget);
+        expect(find.byTooltip('Cart'), findsNothing);
+        if (directory != null && width == 390 && scale == 1) {
+          await saveHomeReview(
+            tester,
+            capture,
+            '$directory/seller-tab-$index.png',
+          );
+        }
+        await tester.tap(avatar);
+        await tester.pumpAndSettle();
+        expect(shell.isDrawerOpen, isTrue);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(shell.isDrawerOpen, isFalse);
+      }
       await tester.tap(find.byKey(const ValueKey('navbar-item-0')));
       await tester.pumpAndSettle();
       expect(find.byIcon(Iconsax.menu_1_copy), findsNothing);
@@ -428,10 +494,11 @@ void main() {
       expect(service.workspaceReads, 1);
       await tester.drag(scrollable, const Offset(0, 120));
       await tester.pumpAndSettle();
-      // Native scrolling starts after the test gesture's initial drag slop.
+      // Scrolling moves by at most the drag distance without resetting Home.
+      // Gesture slop varies with the resized viewport and hit-tested content.
       expect(
         position.pixels,
-        closeTo(belowSeller - (120 - kDragSlopDefault), 3),
+        allOf(lessThan(belowSeller), greaterThanOrEqualTo(belowSeller - 120)),
       );
       await tester.scrollUntilVisible(
         find.text('Sales Overview'),
@@ -564,10 +631,7 @@ void main() {
                   .currentIndex,
               0,
             );
-            expect(
-              find.text(seller ? 'Welcome Back,' : 'Welcome Back, Ana'),
-              findsOneWidget,
-            );
+            expect(find.text('Welcome Back,'), findsOneWidget);
             expect(
               find.byKey(const ValueKey('home-seller-sections')),
               seller ? findsOneWidget : findsNothing,
@@ -708,7 +772,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SellerDashboardPage), findsNothing);
       expect(find.byType(FloatingBottomNavbar), findsOneWidget);
-      expect(find.text('Welcome Back, Ana'), findsOneWidget);
+      expect(find.text('Welcome Back,'), findsOneWidget);
       expect(find.byKey(const ValueKey('home-campus-banners')), findsOneWidget);
       await tester.tap(find.byTooltip('Open menu'));
       await tester.pumpAndSettle();

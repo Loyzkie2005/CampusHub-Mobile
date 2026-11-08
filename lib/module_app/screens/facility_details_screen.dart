@@ -9,6 +9,7 @@ import '../services/facility_service.dart';
 import '../widgets/facilities/booking_widgets.dart';
 import '../widgets/facilities/facility_status_badge.dart';
 import '../widgets/product_image.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'facilities/facility_booking_screen.dart';
 
 // Saved-photo carousel and continuous facility information with the original
@@ -350,9 +351,8 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
             ),
           ),
           bottomNavigationBar: _FacilityBookingBar(
-            favorite: _favorite,
-            onFavorite: _toggleFavorite,
-            label: 'Request Booking',
+            onChat: () => messageFacilitiesAdmin(context, facility.id),
+            showBookingAction: facility.supportsSlotBooking,
             onPressed: _requestAction,
           ),
         ),
@@ -461,66 +461,25 @@ class _FacilityDetailsScreenState extends State<FacilityDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final title = Semantics(
-                header: true,
-                child: Text(
-                  facility.name,
-                  style: _detailText(
-                    26,
-                    weight: FontWeight.w700,
-                  ).copyWith(height: 1.15, letterSpacing: -.5),
-                ),
-              );
-              final chat = Tooltip(
-                message: 'Chat with Facilities Admin',
-                child: TextButton.icon(
-                  key: const ValueKey('facility-chat-button'),
-                  onPressed: () => messageFacilitiesAdmin(context, facility.id),
-                  style: TextButton.styleFrom(
-                    foregroundColor: bookingNavy,
-                    minimumSize: const Size(48, 48),
-                    backgroundColor: _facilityControlSurface,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
-                  icon: const Icon(Icons.chat_outlined),
-                  label: const Text('Chat'),
-                ),
-              );
-              final controls = Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  FacilityStatusBadge(
-                    key: const ValueKey('facility-status-badge'),
-                    status: facility.status,
-                    fontFamily: _facilityDetailFont,
-                  ),
-                  const SizedBox(height: 4),
-                  chat,
-                ],
-              );
-              if (MediaQuery.textScalerOf(context).scale(1) > 1.3) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    title,
-                    Align(alignment: Alignment.centerRight, child: controls),
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: title),
-                  const SizedBox(width: 8),
-                  Expanded(child: controls),
-                ],
-              );
-            },
+          Semantics(
+            header: true,
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(
+                facility.name,
+                key: const ValueKey('facility-name'),
+                style: _detailText(
+                  26,
+                  weight: FontWeight.w700,
+                ).copyWith(height: 1.15, letterSpacing: -.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          FacilityStatusBadge(
+            key: const ValueKey('facility-status-badge'),
+            status: facility.status,
+            fontFamily: _facilityDetailFont,
           ),
           if (facility.location.trim().isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -691,36 +650,18 @@ class _FacilityHeroGallery extends StatelessWidget {
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                   _GalleryButton(
-                    key: const ValueKey('facility-favorite-button'),
+                    key: const ValueKey('facility-bookmark-button'),
                     tooltip: favorite
-                        ? 'Remove from favorites'
-                        : 'Add to favorites',
-                    icon: Icons.favorite_border_rounded,
+                        ? 'Remove saved facility'
+                        : 'Save facility',
+                    icon: Icons.bookmark_border_rounded,
+                    selectedIcon: Icons.bookmark_rounded,
                     selected: favorite,
                     onPressed: onFavorite,
                   ),
                 ],
               ),
             ),
-            if (images.isNotEmpty)
-              Positioned(
-                right: 72,
-                top: topInset + 16,
-                child: _PhotoControlSurface(
-                  radius: 8,
-                  child: Padding(
-                    key: const ValueKey('facility-image-counter'),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    child: Text(
-                      '${currentIndex + 1} / ${images.length}',
-                      style: _detailText(12, weight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-              ),
             if (images.length > 1) ...[
               Positioned(
                 left: 12,
@@ -754,13 +695,12 @@ class _FacilityHeroGallery extends StatelessWidget {
 
 /// Neutral, opaque backing keeps photo controls readable without blur.
 class _PhotoControlSurface extends StatelessWidget {
-  const _PhotoControlSurface({required this.child, this.radius = 24});
+  const _PhotoControlSurface({required this.child});
   final Widget child;
-  final double radius;
 
   @override
   Widget build(BuildContext context) {
-    final shape = BorderRadius.circular(radius);
+    final shape = BorderRadius.circular(24);
     return ClipRRect(
       borderRadius: shape,
       child: DecoratedBox(
@@ -780,19 +720,21 @@ class _GalleryButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.selectedIcon,
     this.selected = false,
   });
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
+  final IconData? selectedIcon;
   final bool selected;
 
   @override
   Widget build(BuildContext context) => _PhotoControlSurface(
     child: IconButton(
       tooltip: tooltip,
-      isSelected: icon == Icons.favorite_border_rounded ? selected : null,
-      selectedIcon: const Icon(Icons.favorite_rounded),
+      isSelected: selectedIcon != null ? selected : null,
+      selectedIcon: selectedIcon != null ? Icon(selectedIcon) : null,
       icon: Icon(icon),
       onPressed: onPressed,
       style: IconButton.styleFrom(
@@ -1200,14 +1142,12 @@ class _Amenities extends StatelessWidget {
 
 class _FacilityBookingBar extends StatelessWidget {
   const _FacilityBookingBar({
-    required this.favorite,
-    required this.onFavorite,
-    required this.label,
+    required this.onChat,
+    required this.showBookingAction,
     this.onPressed,
   });
-  final bool favorite;
-  final VoidCallback onFavorite;
-  final String label;
+  final VoidCallback onChat;
+  final bool showBookingAction;
   final VoidCallback? onPressed;
 
   @override
@@ -1220,55 +1160,104 @@ class _FacilityBookingBar extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                IconButton(
-                  key: const ValueKey('facility-bookmark-button'),
-                  tooltip: favorite ? 'Remove saved facility' : 'Save facility',
-                  isSelected: favorite,
-                  onPressed: onFavorite,
-                  icon: const Icon(Icons.bookmark_border_rounded),
-                  selectedIcon: const Icon(Icons.bookmark_rounded),
-                  style: IconButton.styleFrom(
-                    backgroundColor: _facilityControlSurface,
-                    foregroundColor: bookingNavy,
-                    minimumSize: const Size(56, 56),
-                    side: const BorderSide(color: _facilityOutline),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (showBookingAction) ...[
+                    Expanded(
+                      child: Tooltip(
+                        message: 'Chat with Facilities Admin',
+                        child: OutlinedButton(
+                          key: const ValueKey('facility-chat-button'),
+                          onPressed: onChat,
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: bookingNavy,
+                            elevation: 0,
+                            minimumSize: const Size(0, 52),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            side: const BorderSide(color: bookingNavy, width: 1.2),
+                            shape: const StadiumBorder(),
+                            textStyle: _detailText(14, weight: FontWeight.w600),
+                          ),
+                          child:
+                              MediaQuery.sizeOf(context).width < 340 ||
+                                  MediaQuery.textScalerOf(context).scale(1) >
+                                      1.3
+                              ? const Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(LucideIcons.messageCircle, size: 19),
+                                    SizedBox(height: 4),
+                                    Text('Chat'),
+                                  ],
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(LucideIcons.messageCircle, size: 19),
+                                    SizedBox(width: 8),
+                                    Text('Chat'),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton(
+                      key: const ValueKey('facility-request-booking-button'),
+                      // Non-slot requests already use office messaging. Keep
+                      // the former header Chat access when booking is closed.
+                      onPressed: showBookingAction ? onPressed : onChat,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _facilityDetailGold,
+                        foregroundColor: bookingNavy,
+                        disabledBackgroundColor: _facilityControlSurface,
+                        disabledForegroundColor: _facilityMuted,
+                        elevation: 0,
+                        minimumSize: const Size(double.infinity, 52),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        shape: const StadiumBorder(),
+                        textStyle: _detailText(
+                          14,
+                          weight: FontWeight.w600,
+                          color: bookingNavy,
+                        ),
+                      ),
+                      child: showBookingAction
+                          ? const Text(
+                              'Request Booking',
+                              textAlign: TextAlign.center,
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(LucideIcons.messageCircle, size: 19),
+                                SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'Message Admin',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    key: const ValueKey('facility-request-booking-button'),
-                    onPressed: onPressed,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _facilityDetailGold,
-                      foregroundColor: bookingNavy,
-                      disabledBackgroundColor: _facilityControlSurface,
-                      disabledForegroundColor: _facilityMuted,
-                      minimumSize: const Size(double.infinity, 56),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      textStyle: _detailText(
-                        14,
-                        weight: FontWeight.w700,
-                        color: bookingNavy,
-                      ),
-                    ),
-                    child: Text(label, textAlign: TextAlign.center),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

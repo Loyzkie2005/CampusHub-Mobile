@@ -2,6 +2,7 @@ import 'package:campushub/module_app/screens/dashboard_screen.dart';
 import 'package:campushub/module_app/widgets/navigation/floating_bottom_navbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_test_fixtures.dart';
 
@@ -34,6 +35,9 @@ void main() {
       0,
     );
     expect(find.byTooltip('Search'), findsOneWidget);
+    expect(find.byKey(const ValueKey('dashboard-search-bar')), findsOneWidget);
+    expect(find.text('Search CampusHub...'), findsOneWidget);
+    expect(find.byTooltip('Cart'), findsNothing);
     expect(find.byTooltip('Open Profile'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('navbar-item-2')));
     await tester.pumpAndSettle();
@@ -94,6 +98,16 @@ void main() {
             .currentIndex,
         item.value,
       );
+      if (item.value == 1) {
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is Text &&
+                RegExp(r'^\d+ items?$').hasMatch(widget.data ?? ''),
+          ),
+          findsNothing,
+        );
+      }
       await tester.drag(tabs, const Offset(300, 0));
       await tester.pumpAndSettle();
       expect(
@@ -103,6 +117,40 @@ void main() {
         item.value,
       );
       expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const ValueKey('header-profile-outline')),
+        findsOneWidget,
+      );
+      expect(find.text('Search CampusHub...'), findsOneWidget);
+      expect(find.text('Welcome Back,'), findsOneWidget);
+      expect(find.byIcon(Iconsax.menu_1_copy), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('dashboard-profile-avatar')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.state<ScaffoldState>(find.byType(Scaffold).first).isDrawerOpen,
+        isTrue,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FloatingBottomNavbar>(find.byType(FloatingBottomNavbar))
+            .currentIndex,
+        item.value,
+      );
+      expect(
+        find.byKey(const ValueKey('seller-header-gradient')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Cart'), findsNothing);
+      expect(
+        tester
+            .widget<Container>(
+              find.byKey(const ValueKey('dashboard-brand-header')),
+            )
+            .color,
+        Colors.transparent,
+      );
     }
     expect(find.byTooltip('Search'), findsOneWidget);
     expect(find.byKey(const ValueKey('home-search')), findsNothing);

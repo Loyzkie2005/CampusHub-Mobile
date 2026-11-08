@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../routes/app_routes.dart';
 import '../services/auth_service.dart';
 import '../session/session_service.dart';
+import '../theme/app_typography.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key, this.editingUser});
@@ -243,6 +244,29 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ),
           centerTitle: true,
         ),
+        bottomNavigationBar: widget.editingUser != null
+            ? null
+            : Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: ColoredBox(
+                  color: surface,
+                  child: SafeArea(
+                    top: false,
+                    child: Align(
+                      heightFactor: 1,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(22, 12, 22, 16),
+                          child: _primaryAction(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
         body: SafeArea(
           top: false,
           child: ColoredBox(
@@ -272,6 +296,53 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _primaryAction() {
+    final finishing =
+        _section != 0 && !(_requiresInstitutionalId && _section == 1);
+    final style = FilledButton.styleFrom(
+      backgroundColor: _navy,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(double.infinity, 52),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      textStyle: AppTypography.cardTitle.copyWith(fontWeight: FontWeight.w700),
+    );
+    if (!finishing) {
+      return FilledButton(
+        key: const ValueKey('profile-setup-primary-action'),
+        onPressed: _submitting
+            ? null
+            : _section == 0
+            ? _next
+            : _nextToContact,
+        style: style,
+        child: const Text('Next'),
+      );
+    }
+    return FilledButton.icon(
+      key: const ValueKey('profile-setup-primary-action'),
+      onPressed: _submitting ? null : _finish,
+      style: style,
+      icon: _submitting
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.check, size: 19),
+      label: Text(
+        _submitting
+            ? 'Saving...'
+            : widget.editingUser == null
+            ? 'Finish'
+            : 'Save Changes',
       ),
     );
   }
@@ -315,25 +386,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             }),
           ),
           if (_error != null) _InlineError(message: _error!),
-          const SizedBox(height: 8),
-          const SizedBox(height: 26),
-          SizedBox(
-            height: 52,
-            child: FilledButton(
-              onPressed: _next,
-              style: FilledButton.styleFrom(
-                backgroundColor: _navy,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Text(
-                'Next',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
+          if (widget.editingUser != null) ...[
+            const SizedBox(height: 34),
+            _primaryAction(),
+          ],
         ],
       ),
     );
@@ -470,25 +526,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ],
             ],
             if (_error != null) _InlineError(message: _error!),
-            const SizedBox(height: 8),
-            const SizedBox(height: 26),
-            SizedBox(
-              height: 52,
-              child: FilledButton(
-                onPressed: _nextToContact,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _navy,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: const Text(
-                  'Next',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
+            if (widget.editingUser != null) ...[
+              const SizedBox(height: 34),
+              _primaryAction(),
+            ],
           ],
         ),
       ),
@@ -560,39 +601,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
             ],
             if (_error != null) _InlineError(message: _error!),
-            const SizedBox(height: 8),
-            const SizedBox(height: 26),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                onPressed: _submitting ? null : _finish,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _navy,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                icon: _submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.check, size: 19),
-                label: Text(
-                  _submitting
-                      ? 'Saving...'
-                      : widget.editingUser == null
-                      ? 'Finish'
-                      : 'Save Changes',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
+            if (widget.editingUser != null) ...[
+              const SizedBox(height: 34),
+              _primaryAction(),
+            ],
           ],
         ),
       ),

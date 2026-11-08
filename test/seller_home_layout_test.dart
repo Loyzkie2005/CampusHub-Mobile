@@ -135,7 +135,7 @@ Future<void> reach(WidgetTester tester, Finder target) async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   testWidgets(
-    'recent summary hides purchased products and preserves the complete detail record',
+    'recent summary shows purchased product and preserves the complete detail record',
     (tester) async {
       final row = <String, dynamic>{
         ...(layoutData(orders: 1)['orders'] as List).single as Map,
@@ -165,7 +165,7 @@ void main() {
       expect(buyer, findsOneWidget);
       expect(find.text('buyer-handle'), findsNothing);
       expect(tester.widget<Text>(buyer).maxLines, 2);
-      expect(product, findsNothing);
+      expect(product, findsOneWidget);
       expect(
         tester.getRect(find.text('Order #ORDER-100')).top,
         greaterThanOrEqualTo(tester.getRect(buyer).bottom),
@@ -174,9 +174,9 @@ void main() {
         tester.widget<Text>(find.text('Order #ORDER-100')).style!.fontSize,
         lessThan(tester.widget<Text>(buyer).style!.fontSize!),
       );
-      expect(find.byType(ProductImage), findsNothing);
-      expect(find.text('Quantity: 3'), findsNothing);
-      expect(find.text('+2 more items'), findsNothing);
+      expect(find.byType(ProductImage), findsOneWidget);
+      expect(find.text('Quantity: 3'), findsOneWidget);
+      expect(find.text('+2 more items'), findsOneWidget);
       expect(find.text('Order Total'), findsOneWidget);
       expect(
         tester.getRect(find.text('Order #ORDER-100')).bottom,
@@ -184,16 +184,16 @@ void main() {
       );
       expect(
         tester.getSize(find.byKey(const ValueKey('recent-order-100'))).height,
-        lessThan(260),
+        lessThan(450),
       );
-      await tester.tap(find.text('View Details'));
+      await tester.tap(find.text('View Order Details'));
       expect(identical(opened, row), isTrue);
       expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets(
-    'legacy item records stay out of the summary without changing buyer fallback',
+    'legacy item records show first product without changing buyer fallback',
     (tester) async {
       final row = <String, dynamic>{
         ...(layoutData(orders: 1)['orders'] as List).single as Map,
@@ -219,9 +219,9 @@ void main() {
       );
       expect(find.text('Buyer not recorded'), findsOneWidget);
       expect(find.text('unverified-handle'), findsNothing);
-      expect(find.text('First Recorded Product'), findsNothing);
-      expect(find.text('Quantity: 4'), findsNothing);
-      expect(find.text('+1 more item'), findsNothing);
+      expect(find.text('First Recorded Product'), findsOneWidget);
+      expect(find.text('Quantity: 4'), findsOneWidget);
+      expect(find.text('+1 more item'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -251,15 +251,15 @@ void main() {
           of: carousel,
           matching: find.text('Full Purchased Product Name'),
         ),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         find.descendant(of: carousel, matching: find.byType(ProductImage)),
-        findsNothing,
+        findsOneWidget,
       );
       final details = find.descendant(
         of: carousel,
-        matching: find.text('View Details'),
+        matching: find.text('View Order Details'),
       );
       await reach(tester, details);
       await tester.tap(details);
@@ -282,7 +282,7 @@ void main() {
           of: carousel,
           matching: find.text('Full Purchased Product Name'),
         ),
-        findsNothing,
+        findsOneWidget,
       );
       expect(find.text('Recorded Buyer Full Name'), findsOneWidget);
     },
@@ -382,18 +382,8 @@ void main() {
       const Color(0xFFEAF0FF),
       const Color(0xFF24428A),
     ),
-    (
-      'completed',
-      'Completed',
-      const Color(0xFFEAF6EE),
-      const Color(0xFF21643C),
-    ),
-    (
-      'cancelled',
-      'Cancelled',
-      const Color(0xFFFDECEC),
-      const Color(0xFF9F2D2D),
-    ),
+    ('completed', 'Completed', const Color(0xFFF1F1F5), HomeAppColors.navy),
+    ('cancelled', 'Cancelled', const Color(0xFFF1F1F5), HomeAppColors.navy),
     (
       'ready_for_pickup',
       'Ready for Pickup',
@@ -710,8 +700,8 @@ void main() {
         'Processing',
         '₱40.00',
         'Oct 28, 2026',
-        'Payment: Unpaid',
-        'View Details',
+        'Unpaid',
+        'View Order Details',
       ]) {
         expect(
           find.descendant(of: firstCard, matching: find.text(value)),
@@ -728,11 +718,11 @@ void main() {
       );
       final details = find.descendant(
         of: firstCard,
-        matching: find.text('View Details'),
+        matching: find.text('View Order Details'),
       );
       final detailsButton = find.ancestor(
         of: details,
-        matching: find.byType(OutlinedButton),
+        matching: find.byType(FilledButton),
       );
       expect(
         tester.getRect(firstDot).top,
@@ -771,7 +761,7 @@ void main() {
       expect((dot.decoration as BoxDecoration).color, const Color(0xFFFCB316));
       final card = find.byKey(const ValueKey('recent-order-99'));
       await tester.tap(
-        find.descendant(of: card, matching: find.text('View Details')),
+        find.descendant(of: card, matching: find.text('View Order Details')),
       );
       await tester.pumpAndSettle();
       expect(find.text('Order ORDER-99'), findsOneWidget);
@@ -800,7 +790,7 @@ void main() {
       await show(tester, content(layoutData(orders: count)));
       expect(find.byKey(const ValueKey('recent-order-dot-0')), findsNothing);
       expect(
-        find.text('No Recent Orders'),
+        find.text('No recent orders yet'),
         count == 0 ? findsOneWidget : findsNothing,
       );
       expect(
@@ -809,7 +799,7 @@ void main() {
       );
       if (count == 1) {
         expect(find.text('Order #ORDER-100'), findsOneWidget);
-        expect(find.text('Payment: Unpaid'), findsOneWidget);
+        expect(find.text('Unpaid'), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
     });
@@ -845,7 +835,7 @@ void main() {
       expect(find.text('Order #ORDER-100'), findsOneWidget);
       await show(tester, carousel([]));
       expect(find.byType(PageView), findsNothing);
-      expect(find.text('No Recent Orders'), findsOneWidget);
+      expect(find.text('No recent orders yet'), findsOneWidget);
       expect(
         find.text('New customer orders will appear here.'),
         findsOneWidget,
@@ -1082,7 +1072,7 @@ void main() {
       expect(find.text('Order #COMPLETED-RECENT'), findsOneWidget);
       data['recent_orders'] = <Map<String, dynamic>>[];
       await show(tester, content(data));
-      expect(find.text('No Recent Orders'), findsOneWidget);
+      expect(find.text('No recent orders yet'), findsOneWidget);
       expect(
         find.text('New customer orders will appear here.'),
         findsOneWidget,

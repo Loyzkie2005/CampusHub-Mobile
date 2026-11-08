@@ -20,6 +20,9 @@ class CoveredCourtService extends TestBookingService {
   bool uncertainOnce = false, rejectOnce = false, approved = false;
   Map<String, dynamic>? quoted, savedResponse;
   final bodies = <Map<String, dynamic>>[];
+  String chairRate = '10';
+  bool hasChairRental = true;
+  List<String> requirementOptions = ['Chairs'];
   Map<String, dynamic> get estimate => {
     'base_rental_amount': '3000.00',
     'additional_hour_amount': '500.00',
@@ -36,8 +39,10 @@ class CoveredCourtService extends TestBookingService {
       {'name': 'Chairs', 'quantity': '20', 'amount': '200.00'},
     ],
     'pricing_options': {
+      'requirement_options': requirementOptions,
       'item_fees': [
-        {'index': 0, 'name': 'Chairs', 'unit_amount': '10'},
+        if (hasChairRental)
+          {'index': 0, 'name': 'Chairs', 'unit_amount': chairRate},
       ],
     },
   };
@@ -114,6 +119,13 @@ class CoveredCourtService extends TestBookingService {
 
 void main() {
   setUpAll(() async {
+    await (FontLoader('packages/lucide_icons/Lucide')
+          ..addFont(rootBundle.load('packages/lucide_icons/assets/lucide.ttf')))
+        .load();
+    await (FontLoader('Montserrat')..addFont(
+          rootBundle.load('assets/fonts/Montserrat-VariableFont_wght.ttf'),
+        ))
+        .load();
     await (FontLoader(
       'Inter',
     )..addFont(rootBundle.load('assets/fonts/inter/InterVariable.ttf'))).load();
@@ -126,6 +138,9 @@ void main() {
     WidgetTester tester,
     CoveredCourtService service, {
     double width = 390,
+    int? chairs = 20,
+    bool advanceToReview = true,
+    String facilityType = 'covered_court',
   }) async {
     tester.view.physicalSize = Size(width, 844);
     tester.view.devicePixelRatio = 1;
@@ -139,13 +154,14 @@ void main() {
             facility: FacilityItem.fromJson({
               'id': 'TEST-COURT',
               'name': 'Test Covered Court',
-              'facility_type': 'covered_court',
+              'facility_type': facilityType,
               'status': 'available',
               'booking_mode': 'slot',
               'capacity': 500,
               'rate': '3000',
               'price_type': 'base_hour',
               'job_order_service': 'Facility Rental',
+              'amenities': ['Chairs'],
             }),
             service: service,
           ),
@@ -169,16 +185,33 @@ void main() {
       'Event / Activity Name': 'Practice',
       'Purpose': 'Sports practice',
       'Expected Number of Attendees': '300',
-      'Chairs quantity': '20',
     }.entries) {
       final field = find.byWidgetPredicate(
         (widget) =>
-            widget is TextField && widget.decoration?.labelText == entry.key,
+            widget is TextField &&
+            (widget.decoration?.labelText == entry.key ||
+                widget.decoration?.hintText ==
+                    'Enter ${entry.key.toLowerCase()}'),
       );
       await tester.ensureVisible(field);
       await tester.enterText(field, entry.value);
       await tester.pump();
     }
+    if (chairs != null) {
+      final chairCard = find.byKey(
+        const ValueKey('booking-requirement-Chairs'),
+      );
+      await tester.ensureVisible(chairCard);
+      await tester.tap(chairCard);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('chairs-quantity-input')),
+        '$chairs',
+      );
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+    }
+    if (!advanceToReview) return;
     await tester.tap(find.text('Next: Review Booking'));
     await tester.pumpAndSettle();
     expect(find.text('Review Booking'), findsOneWidget);
@@ -194,9 +227,9 @@ void main() {
         expect(service.quoted?['fee_quantities'], {'0': '20'});
         expect(service.quoted?['additional_requirements'], contains('Chairs'));
         for (final label in [
-          'Additional-hour charges',
+          'Additional Hours',
           'Internal client discount',
-          'Chairs (20)',
+          'Chairs × 20',
           'Refundable damage deposit',
         ]) {
           expect(find.text(label), findsOneWidget);
@@ -205,7 +238,7 @@ void main() {
         expect(tester.takeException(), isNull);
         final directory = Platform.environment['COURT_REVIEW_DIR'];
         if (directory != null) {
-          await tester.ensureVisible(find.text('Total Amount'));
+          await tester.ensureVisible(find.text('Estimated Total'));
           await tester.pumpAndSettle();
           await tester.runAsync(() async {
             final boundary = tester.renderObject<RenderRepaintBoundary>(
@@ -267,6 +300,189 @@ void main() {
       await tester.tap(find.text('Submit Booking Request'));
       await tester.pumpAndSettle();
       expect(service.submissions, 1);
+    },
+  );
+
+  testWidgets(
+    'checked Chairs checkbox removes directly while unchecked checkbox opens quantity',
+    (tester) async {
+      final service = CoveredCourtService();
+      await review(tester, service);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      final chairs = find.byKey(const ValueKey('booking-requirement-Chairs'));
+      await tester.ensureVisible(chairs);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Semantics>(chairs).properties.checked, isTrue);
+      final checkbox = find.byKey(
+        const ValueKey('booking-requirement-toggle-Chairs'),
+      );
+      expect(tester.getSize(checkbox), const Size(48, 48));
+      await tester.tap(checkbox);
+      await tester.pumpAndSettle();
+      expect(find.text('Chairs Quantity'), findsNothing);
+      expect(find.byKey(const ValueKey('booking-fee-0')), findsNothing);
+      expect(tester.widget<Semantics>(chairs).properties.checked, isFalse);
+      await tester.tap(checkbox);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('chairs-quantity-input'));
+      expect(tester.widget<TextField>(input).controller!.text, '1');
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Semantics>(chairs).properties.checked, isFalse);
+      await tester.tap(chairs);
+      await tester.pumpAndSettle();
+      await tester.enterText(input, '5');
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      final semantics = tester.widget<Semantics>(chairs).properties;
+      expect(
+        semantics.customSemanticsActions!.keys.single.label,
+        'Edit chairs quantity',
+      );
+      semantics.onTap!();
+      await tester.pumpAndSettle();
+      expect(find.text('Chairs Quantity'), findsNothing);
+      expect(tester.widget<Semantics>(chairs).properties.checked, isFalse);
+      await tester.tap(find.text('Next: Review Booking'));
+      await tester.pumpAndSettle();
+      expect(service.quoted?['fee_quantities'], {'0': '0'});
+      expect(
+        service.quoted?['additional_requirements'],
+        isNot(contains('Chairs')),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Chairs card alone edits quantity and sends the saved rate quantity to Django',
+    (tester) async {
+      final service = CoveredCourtService()..chairRate = '12.35';
+      await review(tester, service, chairs: null, advanceToReview: false);
+      final card = find.byKey(const ValueKey('booking-requirement-Chairs'));
+      expect(find.byKey(const ValueKey('booking-fee-0')), findsNothing);
+      expect(find.text('Chairs quantity'), findsNothing);
+      expect(find.textContaining('tap to edit or remove Chairs'), findsNothing);
+      expect(
+        find.textContaining('Configured charges are included'),
+        findsNothing,
+      );
+      expect(find.text('\u20b112.35 per chair'), findsOneWidget);
+      await tester.ensureVisible(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('chairs-quantity-input'));
+      expect(tester.widget<TextField>(input).controller!.text, '1');
+      await tester.enterText(input, '20');
+      await tester.pump();
+      expect(find.text('Estimated chair charge'), findsOneWidget);
+      expect(find.text('\u20b1247.00'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Semantics>(card).properties.checked, isFalse);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      await tester.enterText(input, '20');
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Semantics>(card).properties.checked, isTrue);
+      expect(find.text('20 chairs \u00b7 \u20b1247.00'), findsOneWidget);
+      final directory = Platform.environment['CHAIRS_REVIEW_DIR'];
+      if (directory != null) {
+        await tester.runAsync(() async {
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('covered-court-render')),
+          );
+          final rendered = await boundary.toImage(pixelRatio: 2);
+          final bytes = await rendered.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          final file = File('$directory/confirmed-chairs-card.png');
+          file.parent.createSync(recursive: true);
+          file.writeAsBytesSync(bytes!.buffer.asUint8List());
+          rendered.dispose();
+        });
+      }
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).controller!.text, '20');
+      await tester.enterText(input, '99');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('20 chairs \u00b7 \u20b1247.00'), findsOneWidget);
+      await tester.tap(find.text('Next: Review Booking'));
+      await tester.pumpAndSettle();
+      expect(service.quoted?['fee_quantities'], {'0': '20'});
+      expect(service.quoted?['attendees'], '300');
+      // The fixture's issued quote is authoritative even when its estimate differs.
+      expect(find.text('Chairs × 20'), findsOneWidget);
+      await tester.tap(find.text('Submit Booking Request'));
+      await tester.pumpAndSettle();
+      expect(service.bodies.single['fee_quantities'], {'0': '20'});
+      expect(service.bodies.single.containsKey('chair_subtotal'), isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Function Hall without a separate Chair fee retains ordinary selection',
+    (tester) async {
+      final service = CoveredCourtService()..hasChairRental = false;
+      await review(
+        tester,
+        service,
+        chairs: null,
+        advanceToReview: false,
+        facilityType: 'function_hall',
+      );
+      final card = find.byKey(const ValueKey('booking-requirement-Chairs'));
+      await tester.ensureVisible(card);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('Chairs Quantity'), findsNothing);
+      expect(find.textContaining('per chair'), findsNothing);
+      expect(tester.widget<Semantics>(card).properties.checked, isTrue);
+      await tester.tap(find.text('Next: Review Booking'));
+      await tester.pumpAndSettle();
+      expect(service.quoted?['fee_quantities'], isEmpty);
+      expect(service.quoted?['additional_requirements'], contains('Chairs'));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'fresh admin choices replace stale cards and clear a removed chair quantity',
+    (tester) async {
+      final service = CoveredCourtService();
+      await review(tester, service, advanceToReview: false);
+      expect(find.text('20 chairs \u00b7 \u20b1200.00'), findsOneWidget);
+      service.requirementOptions = ['Microphone', 'Extension Cords'];
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next: Booking Details'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('booking-requirement-Chairs')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('booking-fee-0')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('booking-requirement-Microphone')),
+        findsOneWidget,
+      );
+      final custom = find.byKey(
+        const ValueKey('booking-requirement-Extension Cords'),
+      );
+      await tester.ensureVisible(custom);
+      await tester.pumpAndSettle();
+      await tester.tap(custom);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next: Review Booking'));
+      await tester.pumpAndSettle();
+      expect(service.quoted?['additional_requirements'], ['Extension Cords']);
+      expect(service.quoted?['fee_quantities'], {'0': '0'});
+      expect(tester.takeException(), isNull);
     },
   );
 

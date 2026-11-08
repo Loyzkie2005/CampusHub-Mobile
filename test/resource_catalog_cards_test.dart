@@ -451,7 +451,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('facility listing retains selected details and My Bookings', (
+  testWidgets('facility listing retains selected details without top My Bookings button', (
     tester,
   ) async {
     final observer = _RouteObserver();
@@ -472,7 +472,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('My Bookings'), findsOneWidget);
+    expect(find.text('My Bookings'), findsNothing);
     expect(find.byType(ResourceCatalogCard), findsNWidgets(2));
     await tester.tap(find.text('Fixture Court'));
     final route = observer.pushed! as MaterialPageRoute<void>;

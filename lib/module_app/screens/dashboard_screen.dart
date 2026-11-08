@@ -305,56 +305,67 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final isSeller = _sellerApproved && _user != null;
-    final isSellerHome = isSeller && _currentIndex == 0;
     final header = Container(
       key: const ValueKey('dashboard-brand-header'),
-      color: Colors.white,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(isSellerHome ? 14 : 4, 4, 4, 8),
-          child: Row(
-            children: [
-              if (!isSellerHome)
-                IconButton(
-                  tooltip: 'Open menu',
-                  color: HomeAppColors.navy,
-                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                  icon: Icon(Iconsax.menu_1_copy, color: HomeAppColors.navy),
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 4, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: HeaderProfileButton(
+                          user: _user,
+                          outlinedAvatar: true,
+                          onDarkSurface: true,
+                          onPressed: () =>
+                              _scaffoldKey.currentState?.openDrawer(),
+                          greeting: 'Welcome Back,',
+                          actionLabel: 'Open menu',
+                          avatarKey: const ValueKey('dashboard-profile-avatar'),
+                          nameKey: const ValueKey('dashboard-profile-name'),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Notifications',
+                        color: Colors.white,
+                        onPressed: _openNotifications,
+                        icon: const Icon(
+                          Iconsax.notification_copy,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
                 ),
-              Expanded(
-                child: HeaderProfileButton(
-                  user: _user,
-                  onPressed: isSellerHome
-                      ? () => _scaffoldKey.currentState?.openDrawer()
-                      : () => _goToTab(4),
-                  greeting: isSellerHome ? 'Welcome Back,' : null,
-                  actionLabel: isSellerHome ? 'Open menu' : null,
-                  avatarKey: const ValueKey('dashboard-profile-avatar'),
-                  nameKey: const ValueKey('dashboard-profile-name'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: HeaderSearchButton(
+                    key: const ValueKey('dashboard-search-bar'),
+                    onPressed: _openSearch,
+                    asSearchBar: true,
+                    hint: 'Search CampusHub...',
+                    fontFamily: 'Montserrat',
+                  ),
                 ),
-              ),
-              HeaderSearchButton(onPressed: _openSearch),
-              IconButton(
-                tooltip: 'Notifications',
-                color: HomeAppColors.navy,
-                onPressed: _openNotifications,
-                icon: const Icon(
-                  Iconsax.notification_copy,
-                  color: HomeAppColors.navy,
-                ),
-              ),
-              const SizedBox(width: 4),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
-        statusBarColor: Colors.white,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
+        statusBarColor: HomeAppColors.navy,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
         systemNavigationBarColor: Colors.white,
         systemNavigationBarIconBrightness: Brightness.dark,
       ),
@@ -376,96 +387,109 @@ class _DashboardScreenState extends State<DashboardScreen>
             _goToTab(4);
           },
         ),
-        body: Column(
+        body: Stack(
+          fit: StackFit.expand,
           children: [
-            header,
-            Expanded(
-              child: PageView(
-                physics: const NeverScrollableScrollPhysics(),
-                controller: _pageController,
-                onPageChanged: (index) {
-                  FocusManager.instance.primaryFocus?.unfocus();
-                  setState(() => _currentIndex = index);
-                },
-                children:
-                    [
-                          HomePage(
-                            key: _homeKey,
-                            active: _currentIndex == 0,
-                            firstName: _firstName,
-                            preferredCategories:
-                                _user?.preferredCategoryIds ?? const [],
-                            onCategory: (category) {
-                              setState(() {
-                                _preferredCategory = category;
-                                _categorySelectionRevision++;
-                              });
-                              _goToTab(1);
-                            },
-                            showPromotionalBanners:
-                                !(_sellerApproved && _user != null),
-                            showWelcomeGreeting: !isSeller,
-                            sellerSections: _sellerApproved && _user != null
-                                ? SellerDashboardPage(
-                                    key: ValueKey('home-seller-${_user!.id}'),
-                                    user: _user!,
-                                    service: widget.sellerService,
-                                    homeSection: true,
-                                    afterSalesTrend: CampusHomeBanners(
-                                      active: _currentIndex == 0,
-                                      onMarketplace: () => _goToTab(1),
-                                      onFacilities: () => _goToTab(3),
-                                      onServices: () => _goToTab(2),
-                                    ),
-                                    refreshRevision: _sellerRefreshRevision,
-                                    onOpenDestination: _openSellerTool,
-                                  )
-                                : _accessError != null
-                                ? TextButton(
-                                    onPressed: _loadUserName,
-                                    child: Text(_accessError!),
-                                  )
-                                : null,
-                            onMarketplace: () => _goToTab(1),
-                            onFacilities: () => _goToTab(3),
-                            onServices: () => _goToTab(2),
-                            onRefresh: _refreshHome,
-                            catalog: widget.serviceCatalog,
-                            loadProducts: widget.loadHomeProducts,
-                            loadFacilities: widget.loadHomeFacilities,
-                            productBuilder: (product) =>
-                                MarketplacePreviewCard(product: product),
-                          ),
-                          _MarketplacePage(
-                            initialCategory: _preferredCategory,
-                            selectionRevision: _categorySelectionRevision,
-                          ),
-                          ServicesPage(catalog: widget.serviceCatalog),
-                          const FacilitiesPage(),
-                          ProfilePage(
-                            active: _currentIndex == 4,
-                            onHome: () => _goToTab(0),
-                            onMarketplace: () => _goToTab(1),
-                            onMessages: _openMessages,
-                            onNotifications: _openNotifications,
-                            onSellerAccessChanged: _loadUserName,
-                            onUserChanged: (user) {
-                              if (mounted && user.id == _user?.id) {
-                                setState(() => _user = user);
-                              }
-                            },
-                          ),
-                        ]
-                        .asMap()
-                        .entries
-                        .map(
-                          (entry) => RetainedTab(
-                            key: ValueKey('dashboard-tab-${entry.key}'),
-                            child: entry.value,
-                          ),
-                        )
-                        .toList(),
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: _NavyGoldHeaderBackground(extended: true),
               ),
+            ),
+            Column(
+              children: [
+                header,
+                Expanded(
+                  child: PageView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      setState(() => _currentIndex = index);
+                    },
+                    children:
+                        [
+                              HomePage(
+                                key: _homeKey,
+                                active: _currentIndex == 0,
+                                firstName: _firstName,
+                                preferredCategories:
+                                    _user?.preferredCategoryIds ?? const [],
+                                onCategory: (category) {
+                                  setState(() {
+                                    _preferredCategory = category;
+                                    _categorySelectionRevision++;
+                                  });
+                                  _goToTab(1);
+                                },
+                                showPromotionalBanners:
+                                    !(_sellerApproved && _user != null),
+                                showWelcomeGreeting: false,
+                                sellerSections: _sellerApproved && _user != null
+                                    ? SellerDashboardPage(
+                                        key: ValueKey(
+                                          'home-seller-${_user!.id}',
+                                        ),
+                                        user: _user!,
+                                        service: widget.sellerService,
+                                        homeSection: true,
+                                        afterSalesTrend: CampusHomeBanners(
+                                          active: _currentIndex == 0,
+                                          onMarketplace: () => _goToTab(1),
+                                          onFacilities: () => _goToTab(3),
+                                          onServices: () => _goToTab(2),
+                                        ),
+                                        refreshRevision: _sellerRefreshRevision,
+                                        onOpenDestination: _openSellerTool,
+                                      )
+                                    : _accessError != null
+                                    ? TextButton(
+                                        onPressed: _loadUserName,
+                                        child: Text(_accessError!),
+                                      )
+                                    : null,
+                                onMarketplace: () => _goToTab(1),
+                                onFacilities: () => _goToTab(3),
+                                onServices: () => _goToTab(2),
+                                onRefresh: _refreshHome,
+                                catalog: widget.serviceCatalog,
+                                loadProducts: widget.loadHomeProducts,
+                                loadFacilities: widget.loadHomeFacilities,
+                                productBuilder: (product) =>
+                                    MarketplacePreviewCard(product: product),
+                              ),
+                              _MarketplacePage(
+                                initialCategory: _preferredCategory,
+                                selectionRevision: _categorySelectionRevision,
+                              ),
+                              ServicesPage(catalog: widget.serviceCatalog),
+                              const FacilitiesPage(),
+                              ProfilePage(
+                                transparentBackground: true,
+                                active: _currentIndex == 4,
+                                onHome: () => _goToTab(0),
+                                onMarketplace: () => _goToTab(1),
+                                onMessages: _openMessages,
+                                onNotifications: _openNotifications,
+                                onSellerAccessChanged: _loadUserName,
+                                onUserChanged: (user) {
+                                  if (mounted && user.id == _user?.id) {
+                                    setState(() => _user = user);
+                                  }
+                                },
+                              ),
+                            ]
+                            .asMap()
+                            .entries
+                            .map(
+                              (entry) => RetainedTab(
+                                key: ValueKey('dashboard-tab-${entry.key}'),
+                                child: entry.value,
+                              ),
+                            )
+                            .toList(),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -477,6 +501,77 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
+}
+
+/// Brand-color gradient behind the shared header, fading into the white page.
+class _NavyGoldHeaderBackground extends StatelessWidget {
+  const _NavyGoldHeaderBackground({this.extended = false});
+  final bool extended;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      DecoratedBox(
+        key: ValueKey('seller-header-gradient'),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: extended ? const [0, .12, .3, .55, 1] : const [0, .5, 1],
+            colors: extended
+                ? [
+                    HomeAppColors.navy,
+                    Color.alphaBlend(
+                      const Color(0xD91A1851),
+                      HomeAppColors.appBackground,
+                    ),
+                    Color.alphaBlend(
+                      const Color(0x331A1851),
+                      HomeAppColors.appBackground,
+                    ),
+                    HomeAppColors.appBackground,
+                    HomeAppColors.appBackground,
+                  ]
+                : [
+                    HomeAppColors.navy,
+                    Color.alphaBlend(
+                      const Color(0xD91A1851),
+                      HomeAppColors.appBackground,
+                    ),
+                    HomeAppColors.appBackground,
+                  ],
+          ),
+        ),
+      ),
+      DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: extended
+                ? const Alignment(0, -.22)
+                : const Alignment(.75, -.6),
+            radius: 1,
+            colors: const [Color(0x40FCB316), Color(0x00FCB316)],
+          ),
+        ),
+      ),
+      DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: extended ? const [0, .3, .58, 1] : const [0, .4, 1],
+            colors: [
+              Color(0x00FFFFFF),
+              Color(0x00FFFFFF),
+              if (extended) HomeAppColors.appBackground,
+              HomeAppColors.appBackground,
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class _MarketplacePage extends StatefulWidget {
@@ -764,14 +859,6 @@ class _MarketplacePageState extends State<_MarketplacePage> {
                   color: Colors.black,
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
-                ),
-              ),
-              Text(
-                '${filteredCategoryProducts.length} ${filteredCategoryProducts.length == 1 ? 'item' : 'items'}',
-                style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],

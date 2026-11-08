@@ -54,6 +54,13 @@ void main() {
       );
       expect(find.text('Shop on Campus'), findsOneWidget);
       expect(find.byType(IconButton), findsNothing);
+      final wrapper = find
+          .ancestor(
+            of: find.byKey(const ValueKey('home-campus-banners')),
+            matching: find.byType(Material),
+          )
+          .first;
+      expect(tester.widget<Material>(wrapper).type, MaterialType.transparency);
       final paper = tester.getRect(
         find.byKey(const ValueKey('home-banner-paper')),
       );
@@ -157,6 +164,10 @@ void main() {
         final directory = Platform.environment['HOME_BANNER_REVIEW_DIR'];
         if (directory != null) {
           await tester.runAsync(() async {
+            await (FontLoader('Inter')..addFont(
+                  rootBundle.load('assets/fonts/inter/InterVariable.ttf'),
+                ))
+                .load();
             for (final face in ['Regular', 'Medium', 'SemiBold', 'Bold']) {
               await (FontLoader('Poppins')..addFont(
                     rootBundle.load('assets/fonts/poppins/Poppins-$face.ttf'),

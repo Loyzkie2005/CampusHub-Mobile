@@ -22,6 +22,19 @@ def adb_command(adb, *arguments):
     ).stdout
 
 
+def connected_phone_serials(output):
+    """Keep wireless serials containing spaces; the final field is ADB state."""
+    devices = []
+    for line in output.splitlines():
+        fields = line.rsplit(maxsplit=1)
+        if len(fields) != 2:
+            continue
+        serial, state = fields
+        if state == "device" and not serial.startswith("emulator-"):
+            devices.append(serial)
+    return devices
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", help="Explicit connected ADB serial when multiple phones are attached")
@@ -31,12 +44,7 @@ def main():
         print("ADB not found; skipping Android forwarding. Install/configure the Android SDK for phone development.")
         return 0
     try:
-        devices = [
-            fields[0]
-            for line in adb_command(adb, "devices").splitlines()
-            if len(fields := line.split()) >= 2 and fields[1] == "device"
-            and not fields[0].startswith("emulator-")
-        ]
+        devices = connected_phone_serials(adb_command(adb, "devices"))
         if args.device:
             if args.device not in devices:
                 print("The requested phone is not connected/authorized. Check adb devices.")

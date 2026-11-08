@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import '../../models/facility_item.dart';
 import '../../services/facility_booking_service.dart';
 import '../../session/session_service.dart';
 import '../../widgets/facilities/booking_widgets.dart';
+import '../../widgets/facilities/booking_review_summary.dart';
 import '../../widgets/facilities/booking_time_dialog.dart';
+import '../../widgets/facilities/chairs_quantity_sheet.dart';
 import '../../widgets/facilities/booking_schedule_calendar.dart';
 import '../../theme/app_typography.dart';
+import '../../widgets/seller/product_inventory_fields.dart'
+    show ProductFieldLabel, ProductFormStyle;
 import 'facility_booking_status_screen.dart';
 import 'facility_booking_history_screen.dart';
 
@@ -43,6 +48,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
   final _requirements = <String>{};
   final _feeFields = <String, TextEditingController>{};
   List<Map<String, dynamic>> _itemFees = [];
+  late List<String> _requirementOptions;
   Map<String, dynamic>? _submittedPayload;
   final _requestKey = FacilityBookingService.newRequestKey();
   DateTime? _date;
@@ -59,12 +65,14 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
   int _step = 0;
   int _loadVersion = 0;
   bool _loading = false, _busy = false;
+  bool _openingChairs = false;
   Timer? _refreshTimer;
   bool _refreshing = false, _pickingTime = false, _wasCurrent = true;
 
   @override
   void initState() {
     super.initState();
+    _requirementOptions = _cleanRequirementOptions(widget.facility.amenities);
     WidgetsBinding.instance.addObserver(this);
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
@@ -741,9 +749,28 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
     },
   };
 
+  List<String> _cleanRequirementOptions(List<dynamic> values) => values
+      .whereType<String>()
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toSet()
+      .toList();
+
   void _loadPricingOptions(Map<String, dynamic> response) {
     final options = response['pricing_options'];
-    if (options is! Map || options['item_fees'] is! List) return;
+    if (options is! Map) return;
+    if (options['requirement_options'] is List) {
+      _requirementOptions = _cleanRequirementOptions(
+        options['requirement_options'] as List,
+      );
+      _requirements.removeWhere(
+        (label) => !_requirementOptions.contains(label),
+      );
+      if (!_requirementOptions.contains('Others')) {
+        _fields['other_requirements']!.clear();
+      }
+    }
+    if (options['item_fees'] is! List) return;
     final fees = (options['item_fees'] as List)
         .map((row) => Map<String, dynamic>.from(row as Map))
         .toList();
@@ -760,6 +787,11 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       _feeFields.putIfAbsent(id, () => TextEditingController(text: '0'));
     }
     _itemFees = fees;
+    if (!_requirementOptions.contains('Chairs')) {
+      for (final fee in _itemFees.where(_chairFee)) {
+        _feeFields['${fee['index']}']?.text = '0';
+      }
+    }
   }
 
   bool _chairFee(Map<String, dynamic> fee) => const [
@@ -767,6 +799,63 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
     'chairs',
     'chair rental',
   ].contains('${fee['name']}'.trim().toLowerCase());
+
+  // Ambiguous or unpriced configurations retain the existing quantity fields.
+  Map<String, dynamic>? get _chairRentalFee {
+    if (!_requirementOptions.contains('Chairs')) return null;
+    final fees = _itemFees.where(_chairFee).toList();
+    return fees.length == 1 &&
+            chairUnitCentavos(fees.single['unit_amount']) != null
+        ? fees.single
+        : null;
+  }
+
+  Future<void> _editChairs() async {
+    final fee = _chairRentalFee;
+    if (_openingChairs || _busy || fee == null) return;
+    final id = '${fee['index']}';
+    final controller = _feeFields[id];
+    if (controller == null) return;
+    final unit = chairUnitCentavos(fee['unit_amount'])!;
+    _openingChairs = true;
+    try {
+      final quantity = await showChairsQuantitySheet(
+        context: context,
+        currentQuantity: int.tryParse(controller.text) ?? 0,
+        unitCentavos: unit,
+      );
+      if (!mounted || quantity == null || _step != 1) return;
+      final currentFee = _chairRentalFee;
+      if (!identical(_feeFields[id], controller) ||
+          currentFee == null ||
+          '${currentFee['index']}' != id ||
+          chairUnitCentavos(currentFee['unit_amount']) != unit) {
+        setState(
+          () => _error =
+              'Chair pricing changed. Review the current requirements.',
+        );
+        return;
+      }
+      setState(() {
+        controller.text = '$quantity';
+        if (quantity > 0) {
+          _requirements.add('Chairs');
+        } else {
+          _requirements.remove('Chairs');
+        }
+      });
+    } finally {
+      _openingChairs = false;
+    }
+  }
+
+  void _tapRequirement(String label) {
+    if (label == 'Chairs' && _chairRentalFee != null) {
+      unawaited(_editChairs());
+    } else {
+      _toggleRequirement(label);
+    }
+  }
 
   Widget _feeQuantity(Map<String, dynamic> fee) => Padding(
     padding: const EdgeInsets.only(top: 10, bottom: 8),
@@ -783,7 +872,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
       ),
       validator: (value) {
         final count = int.tryParse(value?.trim() ?? '') ?? -1;
-        if (count < 0 || count > 100000) {
+        if (count < 0 || count > chairQuantityLimit) {
           return 'Enter a whole number from 0 to 100000.';
         }
         if (_chairFee(fee) && _requirements.contains('Chairs') && count == 0) {
@@ -806,19 +895,76 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
     int lines = 1,
     TextInputType? keyboard,
     String? suffix,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
+    bool productStyle = false,
+    bool showLabel = true,
+    String? hintText,
+  }) {
+    final field = TextFormField(
+      key: ValueKey('booking-field-$key'),
       controller: _fields[key],
       maxLines: lines,
       keyboardType: keyboard,
-      style: const TextStyle(fontSize: 14, color: bookingNavy),
-      decoration: InputDecoration(
-        labelText: label,
-        alignLabelWithHint: true,
-        suffixText: suffix,
-        suffixStyle: const TextStyle(color: bookingMuted, fontSize: 13),
-      ),
+      style: productStyle
+          ? AppTypography.input.copyWith(color: bookingNavy)
+          : const TextStyle(fontSize: 14, color: bookingNavy),
+      decoration: productStyle
+          ? InputDecoration(
+              hintText: hintText ?? 'Enter ${label.toLowerCase()}',
+              suffixText: suffix,
+              suffixStyle: AppTypography.helper.copyWith(color: bookingMuted),
+              hintStyle: AppTypography.placeholder.copyWith(
+                color: bookingMuted,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 15,
+              ),
+              border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(
+                  Radius.circular(ProductFormStyle.radius),
+                ),
+              ),
+              enabledBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(
+                  Radius.circular(ProductFormStyle.radius),
+                ),
+                borderSide: BorderSide(color: ProductFormStyle.border),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(
+                  Radius.circular(ProductFormStyle.radius),
+                ),
+                borderSide: BorderSide(color: bookingNavy, width: 1.8),
+              ),
+              errorBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(
+                  Radius.circular(ProductFormStyle.radius),
+                ),
+                borderSide: BorderSide(color: ProductFormStyle.error),
+              ),
+              focusedErrorBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(
+                  Radius.circular(ProductFormStyle.radius),
+                ),
+                borderSide: BorderSide(
+                  color: ProductFormStyle.error,
+                  width: 1.8,
+                ),
+              ),
+              errorStyle: AppTypography.error.copyWith(
+                color: ProductFormStyle.error,
+              ),
+              errorMaxLines: 3,
+            )
+          : InputDecoration(
+              labelText: showLabel ? label : null,
+              hintText: hintText,
+              alignLabelWithHint: true,
+              suffixText: suffix,
+              suffixStyle: const TextStyle(color: bookingMuted, fontSize: 13),
+            ),
       validator: (value) {
         final text = value?.trim() ?? '';
         if (required && text.isEmpty) return 'Enter ${label.toLowerCase()}.';
@@ -842,49 +988,259 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
         }
         return null;
       },
-    ),
-  );
+    );
+    return Padding(
+      padding: EdgeInsets.only(bottom: productStyle ? 16 : 14),
+      child: productStyle
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showLabel) ...[
+                  ProductFieldLabel('$label${required ? ' *' : ''}'),
+                  const SizedBox(height: 8),
+                ],
+                Semantics(label: label, child: field),
+              ],
+            )
+          : field,
+    );
+  }
 
-  Widget _jobOrderRequest() => BookingSection(
-    'Job Order Request',
-    child: BookingCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _informationCard(String title, IconData icon, List<Widget> fields) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 18),
+        child: BookingCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.description_outlined,
-                size: 20,
-                color: bookingNavy,
+              Row(
+                children: [
+                  Icon(icon, size: 20, color: bookingNavy),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTypography.sectionTitle.copyWith(
+                        color: bookingNavy,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.facility.jobOrderService.isNotEmpty
-                      ? widget.facility.jobOrderService
-                      : 'Service to be confirmed by Facilities Admin',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: bookingNavy,
+              const SizedBox(height: 16),
+              ...fields,
+            ],
+          ),
+        ),
+      );
+
+  Widget _requestorInformation() =>
+      _informationCard('Requestor Information', Icons.person_outline, [
+        _field('full_name', 'Full Name', productStyle: true),
+        _field(
+          'organization',
+          'Organization / Office',
+          required: false,
+          productStyle: true,
+        ),
+        _field(
+          'contact_number',
+          'Contact Number',
+          keyboard: TextInputType.phone,
+          productStyle: true,
+        ),
+        _field(
+          'email',
+          'Email Address',
+          keyboard: TextInputType.emailAddress,
+          productStyle: true,
+        ),
+      ]);
+
+  Widget _eventInformation() =>
+      _informationCard('Event Information', Icons.event_outlined, [
+        _field('event_name', 'Event / Activity Name', productStyle: true),
+        _field('purpose', 'Purpose', productStyle: true),
+        _field(
+          'attendees',
+          'Expected Number of Attendees',
+          keyboard: TextInputType.number,
+          suffix: 'persons',
+          productStyle: true,
+        ),
+      ]);
+
+  void _toggleRequirement(String label) => setState(() {
+    if (_requirements.contains(label)) {
+      _requirements.remove(label);
+      if (label == 'Chairs') {
+        for (final fee in _itemFees.where(_chairFee)) {
+          _feeFields['${fee['index']}']?.text = '0';
+        }
+      }
+    } else {
+      _requirements.add(label);
+    }
+  });
+
+  Widget _requirementCard(String label, IconData icon) {
+    final selected = _requirements.contains(label);
+    final chairFee = label == 'Chairs' ? _chairRentalFee : null;
+    final chairQuantity = chairFee == null
+        ? 0
+        : int.tryParse(_feeFields['${chairFee['index']}']?.text ?? '') ?? 0;
+    final chairSummary = chairFee == null
+        ? null
+        : selected && chairQuantity > 0
+        ? '$chairQuantity ${chairQuantity == 1 ? 'chair' : 'chairs'} \u00b7 ${chairMoney(chairQuantity * chairUnitCentavos(chairFee['unit_amount'])!)}'
+        : '${chairMoney(chairUnitCentavos(chairFee['unit_amount'])!)} per chair';
+    void toggleSelection() {
+      if (selected && chairFee != null) {
+        _toggleRequirement(label);
+      } else {
+        _tapRequirement(label);
+      }
+    }
+
+    return Semantics(
+      key: ValueKey('booking-requirement-$label'),
+      label: label,
+      checked: selected,
+      value: chairSummary,
+      onTap: toggleSelection,
+      onTapHint: selected && chairFee != null ? 'Remove Chairs' : null,
+      customSemanticsActions: selected && chairFee != null
+          ? {CustomSemanticsAction(label: 'Edit chairs quantity'): _editChairs}
+          : null,
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ProductFormStyle.radius),
+            side: BorderSide(color: selected ? bookingNavy : bookingOutline),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              InkWell(
+                onTap: () => _tapRequirement(label),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, size: 20, color: bookingNavy),
+                          const Spacer(),
+                          Container(
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: selected ? bookingNavy : Colors.white,
+                              borderRadius: BorderRadius.circular(3),
+                              border: Border.all(
+                                color: selected ? bookingNavy : bookingGreyDot,
+                              ),
+                            ),
+                            child: selected
+                                ? const Icon(
+                                    Icons.check,
+                                    size: 12,
+                                    color: Colors.white,
+                                  )
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        label,
+                        style: AppTypography.fieldLabel.copyWith(
+                          color: bookingNavy,
+                        ),
+                      ),
+                      if (chairSummary != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          chairSummary,
+                          style: const TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontWeight: FontWeight.w500,
+                            fontVariations: [FontVariation('wght', 500)],
+                            fontSize: 12,
+                            color: bookingMuted,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
+              if (chairFee != null)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Tooltip(
+                    message: selected ? 'Remove Chairs' : 'Select Chairs',
+                    child: InkWell(
+                      key: const ValueKey('booking-requirement-toggle-Chairs'),
+                      onTap: toggleSelection,
+                      borderRadius: BorderRadius.circular(
+                        ProductFormStyle.radius,
+                      ),
+                      child: const SizedBox(width: 48, height: 48),
+                    ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'After approval, CampusHub prepares a Job Order draft using your '
-            'requester information, facility, schedule, purpose, attendees and '
-            'additional requirements. Facilities staff will review and complete '
-            'the official fields. You do not need to submit a separate Job Order form.',
-            style: TextStyle(fontSize: 12, height: 1.6, color: bookingMuted),
-          ),
-        ],
+        ),
       ),
-    ),
+    );
+  }
+
+  Widget _requirementChoices() => LayoutBuilder(
+    builder: (context, constraints) {
+      final choices = [
+        for (final label in _requirementOptions) (label, iconForAmenity(label)),
+      ];
+      if (choices.isEmpty) {
+        return const Text(
+          'No additional requirements are configured for this facility.',
+          style: TextStyle(fontSize: 14, color: bookingMuted),
+        );
+      }
+      final minCardWidth =
+          130 * MediaQuery.textScalerOf(context).scale(14) / 14;
+      final columns = constraints.maxWidth >= minCardWidth * 2 + 10 ? 2 : 1;
+      return Column(
+        children: [
+          for (var start = 0; start < choices.length; start += columns)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var offset = 0; offset < columns; offset++) ...[
+                      if (offset > 0) const SizedBox(width: 10),
+                      Expanded(
+                        child: start + offset < choices.length
+                            ? _requirementCard(
+                                choices[start + offset].$1,
+                                choices[start + offset].$2,
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
+    },
   );
 
   @override
@@ -895,7 +1251,7 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
     },
     child: BookingScaffold(
       schedulePresentation: _step == 0,
-      flatAppBar: _step == 1,
+      flatAppBar: _step == 1 || _step == 2,
       title: [
         'Select Schedule',
         'Booking Details',
@@ -1344,45 +1700,8 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _jobOrderRequest(),
-                    BookingSection(
-                      'Requestor Information',
-                      child: Column(
-                        children: [
-                          _field('full_name', 'Full Name'),
-                          _field(
-                            'organization',
-                            'Organization / Office',
-                            required: false,
-                          ),
-                          _field(
-                            'contact_number',
-                            'Contact Number',
-                            keyboard: TextInputType.phone,
-                          ),
-                          _field(
-                            'email',
-                            'Email Address',
-                            keyboard: TextInputType.emailAddress,
-                          ),
-                        ],
-                      ),
-                    ),
-                    BookingSection(
-                      'Event Information',
-                      child: Column(
-                        children: [
-                          _field('event_name', 'Event / Activity Name'),
-                          _field('purpose', 'Purpose'),
-                          _field(
-                            'attendees',
-                            'Expected Number of Attendees',
-                            keyboard: TextInputType.number,
-                            suffix: 'persons',
-                          ),
-                        ],
-                      ),
-                    ),
+                    _requestorInformation(),
+                    _eventInformation(),
                     BookingSection(
                       'Additional Requirements',
                       child: Column(
@@ -1392,49 +1711,20 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                             '(Select if needed)',
                             style: TextStyle(fontSize: 12, color: bookingMuted),
                           ),
-                          const SizedBox(height: 6),
-                          for (final label in [
-                            'Chairs',
-                            'Tables',
-                            'Sound System',
-                            'Projector',
-                            'Others',
-                          ])
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity: ListTileControlAffinity.leading,
-                              title: Text(
-                                label,
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              value: _requirements.contains(label),
-                              onChanged: (checked) => setState(() {
-                                if (checked == true) {
-                                  _requirements.add(label);
-                                } else {
-                                  _requirements.remove(label);
-                                  if (label == 'Chairs') {
-                                    for (final fee in _itemFees.where(
-                                      _chairFee,
-                                    )) {
-                                      _feeFields['${fee['index']}']?.text = '0';
-                                    }
-                                  }
-                                }
-                              }),
-                            ),
+                          const SizedBox(height: 10),
+                          _requirementChoices(),
                           if (_requirements.contains('Others'))
                             _field(
                               'other_requirements',
                               'Please specify',
                               required: false,
+                              productStyle: true,
                             ),
-                          for (final fee in _itemFees) _feeQuantity(fee),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Configured charges are included in the estimate. Other requirements may need an admin quote.',
-                            style: TextStyle(fontSize: 12, color: bookingMuted),
-                          ),
+                          for (final fee in _itemFees)
+                            if (!identical(fee, _chairRentalFee) &&
+                                (!_chairFee(fee) ||
+                                    _requirementOptions.contains('Chairs')))
+                              _feeQuantity(fee),
                         ],
                       ),
                     ),
@@ -1442,230 +1732,27 @@ class _FacilityBookingScreenState extends State<FacilityBookingScreen>
                       'Additional Notes',
                       child: _field(
                         'notes',
-                        'Notes',
+                        'Additional Notes',
                         required: false,
                         lines: 3,
+                        productStyle: true,
+                        showLabel: false,
+                        hintText:
+                            'Add any details or instructions for your booking.',
                       ),
                     ),
                   ],
                 ),
               ),
-            if (_step == 2) ...[
-              _jobOrderRequest(),
-              BookingSection(
-                'Booking Summary',
-                child: BookingCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      BookingFacilitySummary(widget.facility),
-                      const Divider(color: bookingOutline),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Schedule',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: bookingNavy,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      BookingValue(
-                        'Date',
-                        bookingDate(
-                          FacilityBookingService.dateKey(_date!),
-                          withWeekday: true,
-                        ),
-                        icon: Icons.calendar_today_outlined,
-                      ),
-                      BookingValue(
-                        'Time',
-                        '${bookingTime(_slot!['start'])} - ${bookingTime(_slot!['end'])}',
-                        icon: Icons.access_time,
-                      ),
-                      BookingValue('Duration', '${_quote!['hours']} hours'),
-                      const Divider(color: bookingOutline),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Requestor Information',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: bookingNavy,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      BookingValue(
-                        'Name',
-                        _fields['full_name']!.text,
-                        icon: Icons.person_outline,
-                      ),
-                      if (_fields['organization']!.text.isNotEmpty)
-                        BookingValue(
-                          'Organization',
-                          _fields['organization']!.text,
-                          icon: Icons.apartment_outlined,
-                        ),
-                      BookingValue(
-                        'Contact',
-                        _fields['contact_number']!.text,
-                        icon: Icons.phone_outlined,
-                      ),
-                      BookingValue(
-                        'Email',
-                        _fields['email']!.text,
-                        icon: Icons.mail_outline,
-                      ),
-                      const Divider(color: bookingOutline),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Event Information',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: bookingNavy,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      BookingValue(
-                        'Event / Activity',
-                        _fields['event_name']!.text,
-                      ),
-                      BookingValue('Purpose', _fields['purpose']!.text),
-                      BookingValue(
-                        'Attendees',
-                        '${_fields['attendees']!.text} persons',
-                      ),
-                      if (_requirements.isNotEmpty) ...[
-                        const Divider(color: bookingOutline),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Additional Requirements',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: bookingNavy,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          [
-                            ..._requirements,
-                            if (_requirements.contains('Others') &&
-                                _fields['other_requirements']!.text.isNotEmpty)
-                              _fields['other_requirements']!.text,
-                          ].join(', '),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: bookingNavy,
-                          ),
-                        ),
-                      ],
-                      if (_fields['notes']!.text.isNotEmpty) ...[
-                        const Divider(color: bookingOutline),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Additional Notes',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: bookingNavy,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _fields['notes']!.text,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: bookingNavy,
-                          ),
-                        ),
-                      ],
-                      const Divider(color: bookingOutline),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Estimated Cost Breakdown',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: bookingNavy,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      BookingValue(
-                        _quote!.containsKey('base_rental_amount')
-                            ? 'Base Rental Fee'
-                            : 'Base Rental Fee (${_quote!['hours']} hours)',
-                        bookingMoney(
-                          _quote!['base_rental_amount'] ??
-                              _quote!['base_amount'],
-                        ),
-                      ),
-                      if ((num.tryParse(
-                                '${_quote!['additional_hour_amount']}',
-                              ) ??
-                              0) >
-                          0)
-                        BookingValue(
-                          'Additional-hour charges',
-                          bookingMoney(_quote!['additional_hour_amount']),
-                        ),
-                      if ((num.tryParse('${_quote!['discount_amount']}') ?? 0) >
-                          0)
-                        BookingValue(
-                          '${_quote!['discount_label'] ?? 'Eligible discount'}',
-                          '-${bookingMoney(_quote!['discount_amount'])}',
-                        ),
-                      for (final fee in (_quote!['fees'] as List? ?? const []))
-                        if ((num.tryParse('${fee['quantity']}') ?? 0) > 0)
-                          BookingValue(
-                            '${fee['name']} (${fee['quantity']})',
-                            bookingMoney(fee['amount']),
-                          ),
-                      if ((num.tryParse('${_quote!['deposit_amount']}') ?? 0) >
-                          0)
-                        BookingValue(
-                          'Refundable damage deposit',
-                          bookingMoney(_quote!['deposit_amount']),
-                        ),
-                      for (final note in [
-                        'discount_note',
-                        'additional_requirements_note',
-                      ])
-                        if ('${_quote![note] ?? ''}'.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Text(
-                              '${_quote![note]}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: bookingMuted,
-                              ),
-                            ),
-                          ),
-                      const Divider(color: bookingOutline),
-                      BookingValue(
-                        'Total Amount',
-                        bookingMoney(_quote!['total_amount']),
-                        bold: true,
-                        valueSize: 18,
-                        valueColor: bookingNavy,
-                      ),
-                    ],
-                  ),
-                ),
+            if (_step == 2)
+              BookingReviewSummary(
+                date: _date!,
+                start: _slot!['start'],
+                end: _slot!['end'],
+                details: _bookingInputs,
+                quote: _quote!,
+                termsConditions: widget.facility.termsConditions,
               ),
-              if (widget.facility.termsConditions.isNotEmpty)
-                BookingSection(
-                  'Rules & Guidelines',
-                  child: BookingCard(
-                    child: Text(
-                      widget.facility.termsConditions,
-                      style: const TextStyle(fontSize: 13, height: 1.5),
-                    ),
-                  ),
-                ),
-            ],
             if (_step == 3) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20),

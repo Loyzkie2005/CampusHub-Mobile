@@ -84,6 +84,8 @@ void main() {
                   user: user,
                   onPressed: () {},
                   greeting: showGreeting ? 'Welcome Back,' : null,
+                  outlinedAvatar: showGreeting,
+                  onDarkSurface: showGreeting,
                   actionLabel: showGreeting ? 'Open menu' : null,
                 ),
               ),
@@ -97,6 +99,23 @@ void main() {
           user.resolvedProfilePhotoUrl,
         );
         expect(avatar.onForegroundImageError, isNotNull);
+        expect(
+          tester.widget<Text>(find.text(user.fullName)).style!.color,
+          showGreeting ? Colors.white : const Color(0xFF1A1851),
+        );
+        final outline = find.byKey(const ValueKey('header-profile-outline'));
+        expect(outline, showGreeting ? findsOneWidget : findsNothing);
+        if (showGreeting) {
+          final decoration =
+              tester.widget<DecoratedBox>(outline).decoration as BoxDecoration;
+          expect(decoration.shape, BoxShape.circle);
+          expect(decoration.gradient!.colors, [
+            const Color(0xFF1A1851),
+            const Color(0xFFFCB315),
+            const Color(0xFF1A1851),
+          ]);
+          expect(tester.getSize(outline), const Size(44, 44));
+        }
         expect(find.text('T'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },

@@ -5,7 +5,6 @@ import '../services/facility_service.dart';
 import '../widgets/facilities/resource_catalog_card.dart';
 import '../widgets/home/home_preview_cards.dart';
 import 'facility_details_screen.dart';
-import 'facilities/facility_booking_history_screen.dart';
 
 class FacilitiesPage extends StatefulWidget {
   const FacilitiesPage({
@@ -78,18 +77,6 @@ class _FacilitiesPageState extends State<FacilitiesPage> {
           24 + MediaQuery.paddingOf(context).bottom,
         ),
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              icon: const Icon(Icons.receipt_long_outlined, size: 18),
-              label: const Text('My Bookings'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FacilityBookingHistoryScreen(),
-                ),
-              ),
-            ),
-          ),
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),

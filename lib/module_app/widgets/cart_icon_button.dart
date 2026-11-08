@@ -10,20 +10,22 @@ class CartIconButton extends StatelessWidget {
     this.iconColor = const Color(0xFF142B47),
     this.badgeKey,
     this.onPressed,
+    this.icon = LucideIcons.shoppingBag,
   });
 
   final Color iconColor;
   final GlobalKey? badgeKey;
   final VoidCallback? onPressed;
+  final IconData icon;
 
   void _openCart(BuildContext context) {
     if (onPressed != null) {
       onPressed!();
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CartScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CartScreen()));
   }
 
   @override
@@ -37,8 +39,9 @@ class CartIconButton extends StatelessWidget {
           children: [
             IconButton(
               key: badgeKey ?? CartService.cartIconKey,
+              tooltip: 'Cart',
               onPressed: () => _openCart(context),
-              icon: Icon(LucideIcons.shoppingBag, color: iconColor),
+              icon: Icon(icon, color: iconColor),
             ),
             if (count > 0)
               Positioned(
@@ -47,7 +50,10 @@ class CartIconButton extends StatelessWidget {
                 child: IgnorePointer(
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
                     decoration: const BoxDecoration(
                       color: Color(0xFFFCB315),
                       shape: BoxShape.circle,

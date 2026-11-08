@@ -25,6 +25,7 @@ class ProfilePage extends StatefulWidget {
     super.key,
     this.onMarketplace,
     this.active = true,
+    this.transparentBackground = false,
     this.onMessages,
     this.onNotifications,
     this.onHome,
@@ -36,6 +37,9 @@ class ProfilePage extends StatefulWidget {
   final Future<void> Function()? onSellerAccessChanged;
   final ValueChanged<AuthUser>? onUserChanged;
   final bool active;
+
+  /// Let the Dashboard's shared gradient show through this embedded tab.
+  final bool transparentBackground;
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -380,7 +384,9 @@ class _ProfilePageState extends State<ProfilePage> {
               });
     return ProfileTheme(
       child: ColoredBox(
-        color: ProfileStyle.background,
+        color: widget.transparentBackground
+            ? Colors.transparent
+            : ProfileStyle.background,
         child: SafeArea(
           top: false,
           bottom: false,
