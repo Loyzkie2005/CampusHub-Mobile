@@ -9,6 +9,7 @@ class ProductImage extends StatelessWidget {
   const ProductImage({
     super.key,
     required this.imageUrl,
+    this.fallbackAsset,
     this.fallbackIcon = Icons.lunch_dining_outlined,
     this.fallbackColor = const Color(0xFF94A3B8),
     this.fallbackSize = 40,
@@ -17,6 +18,9 @@ class ProductImage extends StatelessWidget {
   });
 
   final String imageUrl;
+
+  /// Optional local illustration, used only when the primary image is absent or fails.
+  final String? fallbackAsset;
   final IconData fallbackIcon;
   final Color fallbackColor;
   final double fallbackSize;
@@ -85,7 +89,20 @@ class ProductImage extends StatelessWidget {
     );
   }
 
-  Widget _fallback() =>
+  Widget _fallback() {
+    final asset = fallbackAsset;
+    if (asset == null || asset.isEmpty) return _fallbackIcon();
+    return Image.asset(
+      asset,
+      fit: fit,
+      width: double.infinity,
+      height: double.infinity,
+      cacheWidth: 256,
+      errorBuilder: (_, _, _) => Center(child: _fallbackIcon()),
+    );
+  }
+
+  Widget _fallbackIcon() =>
       Icon(fallbackIcon, color: fallbackColor, size: fallbackSize);
 
   Widget _buildImage(String resolved, int? width, int? height) {

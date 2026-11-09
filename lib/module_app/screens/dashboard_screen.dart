@@ -77,6 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   String? _accessError;
   int _accessRequest = 0;
   int _sellerRefreshRevision = 0;
+  final _sellerRecommendationSources = <String, String>{};
   bool _openingProduct = false;
   String? _preferredCategory;
   int _categorySelectionRevision = 0;
@@ -205,26 +206,43 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     final navigator = Navigator.of(context);
     final ownerRoute = ModalRoute.of(context);
-    navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => SellerDashboardPage(
-          user: _user!,
-          service: widget.sellerService,
-          initialDestination: destination,
-          onBackToCampusHub: () {
-            navigator.popUntil((route) => route == ownerRoute || route.isFirst);
-            _goToTab(0);
-          },
-          onProfile: () {
-            navigator.popUntil((route) => route == ownerRoute || route.isFirst);
-            _goToTab(4);
-          },
-          onMessages: _openMessages,
-          onNotifications: _openNotifications,
-          onSearch: _openSearch,
-        ),
-      ),
-    );
+    final seller = _user!;
+    navigator
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => SellerDashboardPage(
+              user: seller,
+              service: widget.sellerService,
+              initialDestination: destination,
+              initialRecommendationSource:
+                  _sellerRecommendationSources['${seller.id}'] ?? 'live',
+              onRecommendationSourceChanged: (source) =>
+                  _sellerRecommendationSources['${seller.id}'] = source,
+              onBackToCampusHub: () {
+                navigator.popUntil(
+                  (route) => route == ownerRoute || route.isFirst,
+                );
+                _goToTab(0);
+              },
+              onProfile: () {
+                navigator.popUntil(
+                  (route) => route == ownerRoute || route.isFirst,
+                );
+                _goToTab(4);
+              },
+              onMessages: _openMessages,
+              onNotifications: _openNotifications,
+              onSearch: _openSearch,
+            ),
+          ),
+        )
+        .then((_) {
+          if (mounted &&
+              destination == SellerDestination.recommendations &&
+              _user?.id == seller.id) {
+            setState(() => _sellerRefreshRevision++);
+          }
+        });
   }
 
   void _openMessages() {
@@ -439,6 +457,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                                           onServices: () => _goToTab(2),
                                         ),
                                         refreshRevision: _sellerRefreshRevision,
+                                        initialRecommendationSource:
+                                            _sellerRecommendationSources['${_user!.id}'] ??
+                                            'live',
+                                        onRecommendationSourceChanged: (source) =>
+                                            _sellerRecommendationSources['${_user!.id}'] =
+                                                source,
                                         onOpenDestination: _openSellerTool,
                                       )
                                     : _accessError != null

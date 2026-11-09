@@ -122,6 +122,39 @@ class SellerApplicationService {
     _decode(response);
   }
 
+  Future<Map<String, dynamic>> recommendations(String source) async {
+    final response = await http
+        .get(
+          Uri.parse(
+            '${ApiConfig.effectiveBaseUrl}/api/mobile/seller/recommendations/',
+          ).replace(queryParameters: {'source': source}),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 20));
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> recommendationAction(
+    Map<String, dynamic> row,
+    String action,
+  ) async {
+    final response = await http
+        .post(
+          Uri.parse(
+            '${ApiConfig.effectiveBaseUrl}/api/mobile/seller/recommendations/action/',
+          ),
+          headers: await _headers(),
+          body: jsonEncode({
+            'id': row['id'],
+            'source': row['source'] ?? 'live',
+            if (row.containsKey('revision')) 'revision': row['revision'],
+            'action': action,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    return _decode(response);
+  }
+
   Future<bool> setSellerDelivery(bool enabled) async {
     final response = await http
         .post(

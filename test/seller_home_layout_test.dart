@@ -15,6 +15,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'home_test_fixtures.dart';
 import 'seller_test_fixtures.dart';
 
@@ -59,6 +60,7 @@ Map<String, dynamic> layoutData({int orders = 7, bool long = false}) {
 Widget content(
   Map<String, dynamic> data, {
   ValueChanged<SellerDestination>? onNavigate,
+  VoidCallback? onReload,
 }) => SellerWorkspaceContent(
   destination: SellerDestination.overview,
   data: data,
@@ -67,7 +69,7 @@ Widget content(
   onNavigate: onNavigate ?? (_) {},
   onAddProduct: () {},
   onCreateBundle: (_) {},
-  onReload: () {},
+  onReload: onReload ?? () {},
   onPeriod: (_) {},
   onOrdersPage: (_) {},
 );
@@ -81,6 +83,7 @@ Future<void> reviewFonts(WidgetTester tester) async {
       'MaterialIcons': 'fonts/MaterialIcons-Regular.otf',
       'packages/iconsax_flutter/FlutterIconsax':
           'packages/iconsax_flutter/fonts/FlutterIconsax.ttf',
+      'packages/lucide_icons/Lucide': 'packages/lucide_icons/assets/lucide.ttf',
     }.entries) {
       await (FontLoader(font.key)..addFont(rootBundle.load(font.value))).load();
     }
@@ -667,7 +670,10 @@ void main() {
       final semantics = tester.ensureSemantics();
       final data = layoutData();
       await show(tester, content(data));
-      final pager = find.byType(PageView);
+      final pager = find.descendant(
+        of: find.byType(SellerRecentOrders),
+        matching: find.byType(PageView),
+      );
       await reach(tester, pager);
       expect(
         tester.widget<PageView>(pager).childrenDelegate.estimatedChildCount,
@@ -902,7 +908,13 @@ void main() {
             rendered.dispose();
           });
         }
-        await reach(tester, find.byType(PageView));
+        await reach(
+          tester,
+          find.descendant(
+            of: find.byType(SellerRecentOrders),
+            matching: find.byType(PageView),
+          ),
+        );
         final badge = find.byKey(const ValueKey('recent-order-status-100'));
         final header = find.byKey(const ValueKey('recent-order-header-100'));
         final reference = find.descendant(
@@ -929,7 +941,13 @@ void main() {
           tester.getRect(reference).right + 12,
           lessThanOrEqualTo(tester.getRect(badge).left + 0.1),
         );
-        await tester.drag(find.byType(PageView), const Offset(-600, 0));
+        await tester.drag(
+          find.descendant(
+            of: find.byType(SellerRecentOrders),
+            matching: find.byType(PageView),
+          ),
+          const Offset(-600, 0),
+        );
         await tester.pumpAndSettle();
         await reach(tester, find.text('Inventory Alerts'));
         expect(find.text('Restock Threshold'), findsNWidgets(3));
@@ -990,21 +1008,11 @@ void main() {
     final data = layoutData(orders: 0);
     (data['recommendations'] as Map)['rows'] = [];
     await show(tester, content(data));
-    expect(
-      find.text(
-        'No bundle suggestions yet. More completed transactions are needed.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('No bundle suggestions yet'), findsOneWidget);
     (data['recommendations'] as Map)['error'] = true;
     await show(tester, content(data));
     expect(find.text('Unable to load bundle suggestions.'), findsOneWidget);
-    expect(
-      find.text(
-        'No bundle suggestions yet. More completed transactions are needed.',
-      ),
-      findsNothing,
-    );
+    expect(find.text('No bundle suggestions yet'), findsNothing);
     await show(
       tester,
       const SellerSalesTrend(
@@ -1019,6 +1027,152 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     expect(find.text('Oct 28: ₱34.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final width in [280.0, 320.0, 390.0, 430.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'bundle empty card fits and centers at $width dp / $scale text',
+        (tester) async {
+          final data = layoutData(orders: 0);
+          (data['recommendations'] as Map)['rows'] = [];
+          final capture = GlobalKey();
+          final directory = Platform.environment['SELLER_BUNDLE_REVIEW_DIR'];
+          await reviewFonts(tester);
+          await show(
+            tester,
+            content(data),
+            width: width,
+            scale: scale,
+            capture: capture,
+          );
+          final empty = find.byKey(
+            const ValueKey('seller-bundle-suggestions-empty'),
+          );
+          await reach(tester, empty);
+          final bounds = tester.getRect(empty);
+          final icon = find.descendant(
+            of: empty,
+            matching: find.byIcon(LucideIcons.packageSearch),
+          );
+          final title = find.text('No bundle suggestions yet');
+          final description = find.text(
+            'Suggested product combinations will appear here when enough transaction data is available.',
+          );
+          expect(icon, findsOneWidget);
+          for (final child in [icon, title, description]) {
+            final rect = tester.getRect(child);
+            expect(rect.center.dx, closeTo(bounds.center.dx, .01));
+            expect(rect.left, greaterThanOrEqualTo(bounds.left + 16));
+            expect(rect.right, lessThanOrEqualTo(bounds.right - 16));
+            expect(rect.bottom, lessThanOrEqualTo(bounds.bottom - 20));
+          }
+          expect(
+            tester.getRect(title).top - tester.getRect(icon).bottom,
+            greaterThanOrEqualTo(16),
+          );
+          expect(
+            tester.getRect(description).top - tester.getRect(title).bottom,
+            closeTo(8, .01),
+          );
+          for (final text in [title, description]) {
+            expect(tester.widget<Text>(text).textAlign, TextAlign.center);
+            expect(tester.widget<Text>(text).maxLines, isNull);
+            final paragraph = tester.renderObject<RenderParagraph>(text);
+            expect(paragraph.didExceedMaxLines, isFalse);
+          }
+          final decoration =
+              tester.widget<Container>(empty).decoration! as BoxDecoration;
+          expect(decoration.color, HomeAppColors.white);
+          expect(decoration.border, Border.all(color: HomeAppColors.border));
+          expect(decoration.borderRadius, BorderRadius.circular(12));
+          expect(tester.widget<Icon>(icon).color, HomeAppColors.navy);
+          expect(find.text('Retry'), findsNothing);
+          expect(find.text('Create Bundle'), findsNothing);
+          expect(find.text('Dismiss'), findsNothing);
+          if (scale == 1) expect(bounds.height, lessThanOrEqualTo(260));
+          expect(bounds.left, greaterThanOrEqualTo(0));
+          expect(bounds.right, lessThanOrEqualTo(width));
+          expect(tester.takeException(), isNull);
+          if (directory != null && (width == 320 || width == 390)) {
+            await tester.runAsync(() async {
+              final boundary =
+                  capture.currentContext!.findRenderObject()!
+                      as RenderRepaintBoundary;
+              final rendered = await boundary.toImage(pixelRatio: 1.5);
+              final bytes = await rendered.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              File(
+                '$directory/bundle-empty-$width-$scale.png',
+              ).writeAsBytesSync(bytes!.buffer.asUint8List());
+              rendered.dispose();
+            });
+          }
+        },
+      );
+    }
+  }
+
+  testWidgets('bundle Retry is reserved for an API error and calls reload', (
+    tester,
+  ) async {
+    final data = layoutData(orders: 0);
+    (data['recommendations'] as Map)['rows'] = [];
+    var reloads = 0;
+    await show(tester, content(data, onReload: () => reloads++));
+    expect(find.text('Retry'), findsNothing);
+    (data['recommendations'] as Map)['error'] = true;
+    await show(tester, content(data, onReload: () => reloads++));
+    expect(find.text('Unable to load bundle suggestions.'), findsOneWidget);
+    expect(find.text('No bundle suggestions yet'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Create Bundle'), findsNothing);
+    expect(find.text('Dismiss'), findsNothing);
+    await reach(tester, find.text('Retry'));
+    await tester.tap(find.text('Retry'));
+    expect(reloads, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bundle empty card follows active rows and keeps See All', (
+    tester,
+  ) async {
+    final data = layoutData(orders: 0);
+    SellerDestination? destination;
+    final recommendations = data['recommendations'] as Map;
+    recommendations['rows'] = [];
+    data['saved_suggestions'] = [sellerPairFixture()];
+    await show(
+      tester,
+      content(data, onNavigate: (value) => destination = value),
+    );
+    expect(find.text('No bundle suggestions yet'), findsOneWidget);
+    final header = find.byKey(const ValueKey('seller-section-recommendations'));
+    await reach(tester, header);
+    await tester.tap(
+      find.descendant(of: header, matching: find.byType(TextButton)),
+    );
+    expect(destination, SellerDestination.recommendations);
+    recommendations['rows'] = [sellerPairFixture()];
+    data['saved_suggestions'] = [];
+    await show(tester, content(data));
+    expect(find.text('No bundle suggestions yet'), findsNothing);
+    expect(find.text('View Suggestion'), findsNothing);
+    expect(find.text('Create Bundle'), findsOneWidget);
+    recommendations['rows'] = [
+      {
+        ...sellerPairFixture(),
+        'products': [
+          {'id': 999, 'name': 'Other seller product'},
+          {'id': 2, 'name': 'Test Pen'},
+        ],
+      },
+    ];
+    await show(tester, content(data));
+    expect(find.text('No bundle suggestions yet'), findsOneWidget);
+    expect(find.text('Create Bundle'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

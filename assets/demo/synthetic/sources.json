@@ -1,0 +1,44 @@
+{
+  "project": "OpenMoji",
+  "version": "17.0.0",
+  "license": "CC BY-SA 4.0",
+  "changes": "None. Original PNG bytes bundled unchanged. Illustrative demo artwork, not real catalog photography.",
+  "assets": [
+    {
+      "asset": "noodles.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F35C.png",
+      "sha256": "dc00cc65c6b402d09cb07cef6454907689bbb615545c0b4d10aaa07091836968",
+      "bytes": 7270
+    },
+    {
+      "asset": "egg.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F95A.png",
+      "sha256": "24c7f48c935d86e8f6efa8ec198779a62a8759434dc17ec5ef74b98fcec85d01",
+      "bytes": 10747
+    },
+    {
+      "asset": "dumpling.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F95F.png",
+      "sha256": "a3a7cfc53113def0de419e3a2a88d5152847b59b657acac1a814af78b24f78fb",
+      "bytes": 9035
+    },
+    {
+      "asset": "jelly-drink.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F9CB.png",
+      "sha256": "9ef86a335d8a47b2bbd8546fb6315402031334ba216ccf1cdb88edde2b04a1a3",
+      "bytes": 10223
+    },
+    {
+      "asset": "burger.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F354.png",
+      "sha256": "0c7afd27bcb31c85ec5993d57a8a73838a140d62609b65106b4a2573c6cafa61",
+      "bytes": 7742
+    },
+    {
+      "asset": "lemon.png",
+      "source": "https://raw.githubusercontent.com/hfg-gmuend/openmoji/17.0.0/color/618x618/1F34B.png",
+      "sha256": "d2f2bc2bdf10ba4e10f73631cf3ff8a134ce6ebb42b6b5b9e1683ca958d7a1db",
+      "bytes": 8695
+    }
+  ]
+}

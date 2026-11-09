@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 import '../models/product_customization.dart';
 import '../services/seller_application_service.dart';
 import '../widgets/profile/profile_widgets.dart';
@@ -10,15 +11,28 @@ class SellerBundleForm extends StatefulWidget {
     required this.pairId,
     required this.products,
     required this.service,
+    this.source = 'live',
+    this.revision,
   });
   final String pairId;
   final List<Map<String, dynamic>> products;
   final SellerApplicationService service;
+  final String source;
+  final String? revision;
   @override
   State<SellerBundleForm> createState() => _SellerBundleFormState();
 }
 
 class _SellerBundleFormState extends State<SellerBundleForm> {
+  final submissionKey = _newSubmissionKey();
+  static String _newSubmissionKey() {
+    final random = Random.secure();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
   final form = GlobalKey<FormState>();
   late final name = TextEditingController(
     text: widget.products.map((p) => p['name']).join(' + '),
@@ -70,6 +84,9 @@ class _SellerBundleFormState extends State<SellerBundleForm> {
         'description': notes.text.trim(),
         'product_type': 'bundle',
         'suggestion_id': widget.pairId,
+        'suggestion_source': widget.source,
+        'submission_key': submissionKey,
+        if (widget.revision != null) 'suggestion_revision': widget.revision,
         'bundle_components': components,
       });
       if (mounted) {
@@ -130,7 +147,7 @@ class _SellerBundleFormState extends State<SellerBundleForm> {
                   final number = double.tryParse(value ?? '');
                   return number == null ||
                           !number.isFinite ||
-                          number < 0 ||
+                          number <= 0 ||
                           !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value!)
                       ? 'Enter a valid price with at most two decimal places.'
                       : null;

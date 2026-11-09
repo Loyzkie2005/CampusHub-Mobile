@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import '../theme/app_typography.dart';
 
 import '../widgets/home/home_preview_cards.dart';
@@ -7,6 +9,7 @@ import '../widgets/navigation/seller_drawer.dart';
 import '../widgets/product_image.dart';
 import '../widgets/seller/seller_sales_trend.dart';
 import '../widgets/seller/seller_recent_orders.dart';
+import '../widgets/seller/seller_bundle_carousel.dart';
 import '../widgets/seller/seller_inventory_alert.dart';
 import '../widgets/profile/profile_widgets.dart';
 import '../services/seller_application_service.dart';
@@ -32,12 +35,22 @@ class SellerWorkspaceContent extends StatefulWidget {
     this.salesRefreshing = false,
     this.salesError,
     this.onSalesRetry,
+    this.onDismissRecommendation,
+    this.onDeclineRecommendation,
+    this.recommendationLoadingSources = const {},
+    this.onRecommendationSource,
+    this.recommendationsLoading = false,
   });
   final SellerDestination destination;
   final Map<String, dynamic> data;
   final ValueChanged<SellerDestination> onNavigate;
   final VoidCallback onAddProduct, onReload;
-  final ValueChanged<Map<String, dynamic>> onCreateBundle;
+  final FutureOr<void> Function(Map<String, dynamic>) onCreateBundle;
+  final Future<void> Function(Map<String, dynamic>)? onDismissRecommendation;
+  final Future<void> Function(Map<String, dynamic>)? onDeclineRecommendation;
+  final Set<String> recommendationLoadingSources;
+  final Future<void> Function(String)? onRecommendationSource;
+  final bool recommendationsLoading;
   final ValueChanged<String> onPeriod;
   final ValueChanged<int> onOrdersPage;
   final String sellerFirstName;
@@ -1421,148 +1434,177 @@ class _SellerWorkspaceContentState extends State<SellerWorkspaceContent> {
     ];
   }
 
-  Widget pair(BuildContext context, Map<String, dynamic> row) {
-    final products = maps(row['products']);
-    final title = products.map((product) => product['name']).join(' + ');
-    return card(
+  Widget _bundleSuggestionsEmptyState({
+    String source = 'live',
+    String title = 'No bundle suggestions yet',
+    String detail =
+        'Suggested product combinations will appear here when enough transaction data is available.',
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Container(
+      key: ValueKey(
+        source == 'live'
+            ? 'seller-bundle-suggestions-empty'
+            : 'seller-bundle-$source-empty',
+      ),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      decoration: BoxDecoration(
+        color: HomeAppColors.white,
+        border: Border.all(color: HomeAppColors.border),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < products.length; i++) ...[
-                if (i > 0)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 20),
-                    child: Icon(Icons.add_rounded, size: 18),
-                  ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: 60,
-                        child: ProductImage(
-                          imageUrl: '${products[i]['image_url'] ?? ''}',
-                          fallbackIcon: Icons.inventory_2_outlined,
-                          fallbackColor: HomeAppColors.navy,
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${products[i]['name']}',
-                        textAlign: TextAlign.center,
-                        style: _text(12, weight: 600),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
+          ExcludeSemantics(
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: HomeAppColors.navy.withValues(alpha: .05),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                LucideIcons.packageSearch,
+                size: 26,
+                color: HomeAppColors.navy,
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              TextButton(
-                style: actionStyle,
-                onPressed: () => detail(context, 'Bundle Suggestion', [
-                  Text(title, style: _text(16, weight: 700)),
-                  const SizedBox(height: 12),
-                  for (final product in products)
-                    line('Product', product['name']),
-                  line('Seller', row['seller']),
-                ]),
-                child: const Text('View Suggestion'),
-              ),
-              OutlinedButton(
-                onPressed: () => widget.onCreateBundle(row),
-                child: const Text('Create Bundle'),
-              ),
-            ],
+          const SizedBox(height: 16),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: InterTypography.sized(16, weight: 600),
+          ),
+          const SizedBox(height: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Text(
+              detail,
+              textAlign: TextAlign.center,
+              style: InterTypography.sized(13, color: ProfileStyle.secondary),
+            ),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
 
   List<Widget> suggestions(BuildContext context, {bool preview = false}) {
+    final sections = widget.data['recommendation_sections'] as Map? ?? {};
     final ownedIds = rows('products').map((p) => '${p['id']}').toSet();
-    final list = maps(recommendations['rows']).where((row) {
-      final pair = maps(row['products']);
-      return pair.length == 2 &&
-          pair.every((p) => ownedIds.contains('${p['id']}'));
-    }).toList();
-    if (preview) {
-      return [
-        if (recommendations['error'] == true)
+    final result = <Widget>[];
+    for (final source in ['admin', 'live', 'synthetic']) {
+      final section = Map<String, dynamic>.from(
+        sections[source] as Map? ??
+            (recommendations['source'] == source ||
+                    (source == 'live' && recommendations['source'] == null)
+                ? recommendations
+                : {'source': source, 'rows': [], 'error': false}),
+      );
+      final list = maps(section['rows'])
+          .where((row) {
+            final pair = maps(row['products']);
+            return pair.length == 2 &&
+                (source == 'synthetic' ||
+                    pair.every((p) => ownedIds.contains('${p['id']}')));
+          })
+          .map((row) => {...row, 'source': source})
+          .toList();
+      if (source == 'admin') {
+        list.sort(
+          (a, b) => (a['status'] == 'pending' ? 0 : 1).compareTo(
+            b['status'] == 'pending' ? 0 : 1,
+          ),
+        );
+      }
+      final title = switch (source) {
+        'admin' => 'From Marketplace Admin',
+        'synthetic' => 'Synthetic Demo (Testing Only)',
+        _ => 'Recommended for You (Live Data)',
+      };
+      final detail = switch (source) {
+        'admin' => 'Recommendations sent to you by Marketplace Admin.',
+        'synthetic' => 'Sample product combination — Not for Sale',
+        _ => 'Based on completed marketplace orders',
+      };
+      final loading =
+          widget.recommendationLoadingSources.contains(source) ||
+          (widget.recommendationsLoading && source == 'live');
+      final empty = _bundleSuggestionsEmptyState(
+        source: source,
+        title: source == 'admin'
+            ? 'No admin recommendations yet'
+            : source == 'synthetic'
+            ? 'No demo bundles available'
+            : 'No bundle suggestions yet',
+        detail: source == 'admin'
+            ? 'Recommendations sent to you will appear here.'
+            : source == 'synthetic'
+            ? (section['status'] == 'not_generated'
+                  ? 'Run Synthetic Analysis to view suggestions.'
+                  : 'No product pairs meet the analysis criteria.')
+            : 'Suggested product combinations will appear here when enough transaction data is available.',
+      );
+      result.addAll([
+        Padding(
+          key: ValueKey('bundle-section-$source'),
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: InterTypography.sized(15, weight: 600)),
+              const SizedBox(height: 4),
+              Text(
+                detail,
+                style: InterTypography.sized(12, color: ProfileStyle.secondary),
+              ),
+            ],
+          ),
+        ),
+        if (loading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: LinearProgressIndicator(minHeight: 2),
+          )
+        else if (section['error'] == true)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Unable to load bundle suggestions.',
+                source == 'live'
+                    ? 'Unable to load bundle suggestions.'
+                    : 'Unable to load this section.',
                 style: InterTypography.sized(13),
               ),
               TextButton(
-                onPressed: widget.onReload,
+                key: ValueKey('bundle-retry-$source'),
+                onPressed: () => widget.onRecommendationSource != null
+                    ? widget.onRecommendationSource!(source)
+                    : widget.onReload(),
                 child: const Text('Retry'),
               ),
             ],
           )
-        else if (list.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Text(
-              'No bundle suggestions yet. More completed transactions are needed.',
-              style: InterTypography.sized(12, color: ProfileStyle.secondary),
-            ),
-          )
         else
-          for (final row in list.take(2))
-            card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    maps(
-                      row['products'],
-                    ).map((product) => product['name']).join(' + '),
-                    style: InterTypography.sized(14, weight: 600),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton(
-                        onPressed: () => detail(context, 'Bundle Suggestion', [
-                          for (final product in maps(row['products']))
-                            line('Product', product['name']),
-                          line('Seller', row['seller']),
-                        ]),
-                        child: const Text('View Suggestion'),
-                      ),
-                      OutlinedButton(
-                        onPressed: () => widget.onCreateBundle(row),
-                        child: const Text('Create Bundle'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-      ];
+          SellerBundleCarousel(
+            key: ValueKey('seller-bundles-$source'),
+            rows: list,
+            carousel: true,
+            onCreate: widget.onCreateBundle,
+            onDismiss: source == 'admin'
+                ? null
+                : widget.onDismissRecommendation,
+            onDecline: source == 'admin'
+                ? widget.onDeclineRecommendation
+                : null,
+            emptyState: empty,
+          ),
+      ]);
     }
-    return [
-      if (list.isEmpty) ...[
-        message('No bundle suggestions available yet.'),
-        Text(
-          'Suggestions will appear after sufficient completed marketplace transactions are recorded.',
-          style: _text(12, color: ProfileStyle.secondary),
-        ),
-      ] else ...[
-        for (final row in preview ? list.take(3) : list) pair(context, row),
-      ],
-    ];
+    return result;
   }
 
   List<Map<String, dynamic>> get homeRecentOrders {

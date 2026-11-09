@@ -48,6 +48,12 @@ class WorkspaceService extends SellerApplicationService {
   final data = sellerWorkspaceFixture();
   String? choice;
   @override
+  Future<Map<String, dynamic>> recommendations(String source) async => {
+    'source': source,
+    'rows': <Map<String, dynamic>>[],
+    'error': false,
+  };
+  @override
   Future<Map<String, dynamic>> status([String? ignoredLegacyId]) async => {
     'is_approved_seller': approved,
   };
@@ -64,6 +70,25 @@ class WorkspaceService extends SellerApplicationService {
   }
 
   Map<String, dynamic>? lastProduct;
+  @override
+  Future<Map<String, dynamic>> recommendationAction(
+    Map<String, dynamic> row,
+    String action,
+  ) async {
+    if (action == 'validate') {
+      final ids = (row['products'] as List).map((p) => p['id']).toSet();
+      return {
+        'id': row['id'],
+        'source': row['source'] ?? 'live',
+        'products': (data['products'] as List)
+            .where((p) => ids.contains(p['id']))
+            .toList(),
+      };
+    }
+    choice = '${row['id']}:dismiss';
+    return {'message': 'Dismissed'};
+  }
+
   @override
   Future<Map<String, dynamic>> createProduct(
     Map<String, dynamic> fields,
@@ -775,10 +800,11 @@ void main() {
       for (final label in ['Support', 'Confidence', 'Lift', 'SYNTHETIC']) {
         expect(find.text(label), findsNothing);
       }
-      await tester.tap(find.text('View Suggestion'));
-      await tester.pumpAndSettle();
-      expect(find.text('Bundle Suggestion'), findsOneWidget);
-      await tester.pageBack();
+      expect(find.text('View Suggestion'), findsNothing);
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Create Bundle')),
+        alignment: .5,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Create Bundle'));
       await tester.pumpAndSettle();
@@ -836,7 +862,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(service.lastProduct?['product_type'], 'bundle');
       expect(service.lastProduct?['stock'], isNull);
-      expect(find.text('My Bundles'), findsOneWidget);
+      expect(find.text('My Products'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.textContaining('Pending Review'),
+        160,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const PageStorageKey('seller-products')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.textContaining('Pending Review'), findsWidgets);
       expect(find.text('My Bundle Suggestions'), findsNothing);
       expect(tester.takeException(), isNull);

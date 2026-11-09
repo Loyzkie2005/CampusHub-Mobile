@@ -1,5 +1,75 @@
 # CampusHub Mobile Network Connectivity & Troubleshooting Guide
 
+## Mobile login reachability and database-selection conflict — November 9, 2026
+
+### 1. Cause / reason
+
+The reported connection message was not reproduced in credential-free Android checks: both ADB loopback and the current PC Wi-Fi address reached Django's catalog and login validation. A confirmed helper gap was found: ADB exposes the same authorized phone through IP and discovery-name transports, but the old default helper skipped forwarding whenever more than one transport appeared. This can leave mappings unrefreshed after reconnecting; the helper now resolves verified aliases safely.
+
+Database intent also conflicts across local sessions. At the start, both private files selected PC PostgreSQL :5432. The user's mention of a live database prompted read-only verification and restoration of the previously authorized Kamatera :15432 selection. It connected successfully, but another session then restored :5432 again and documented a deliberate local-development/loading request. The later active-file timestamps and current project notes confirm the second change. **Latest observed selection is PC PostgreSQL; further switches are paused pending the user's choice.** Do not describe the earlier successful Kamatera test as proof that it remains active.
+
+### 2. Exact files changed / current anchors
+
+| File / current line | Anchor | Change |
+| --- | --- | --- |
+| `campushub/scripts/connect_android.py:18` | `adb_command` | Close inherited stdin, decode UTF-8 and retain bounded literal arguments. |
+| `campushub/scripts/connect_android.py:39` | `resolve_single_phone` | Resolve aliases only when every reported hardware identity matches; prefer USB, IP, then discovery. |
+| `campushub/scripts/connect_android.py:66` | `main` | Use the verified single-phone resolver by default; preserve explicit `--device`. |
+| `campushub/scripts/test_connect_android.py:14` | `AndroidForwardingSelectionTests` | Add alias, distinct/unknown hardware and unresponsive-transport regressions. |
+| Private `backend/core/.env`, `backend/chat_service/.env` | Active `DATABASE_URL` | This task temporarily restored saved Kamatera URLs; another session subsequently restored local URLs. Latest local layout uses lines 11/2 with private inactive online comments. |
+| This guide (`:3`), root `CAMPUSHUB_CONTEXT.md:3` | Current diagnostics note | Record scope, confirmed results and unresolved database intent. |
+
+No Dart screens, AuthService, authentication rules, model, API route, migration or dependencies changed. No new APK is required for this helper-only code fix. The separate earlier monitor changes remain local and are not overwritten here.
+
+### 3. Changes made
+
+Restored both phone reverse mappings and tested actual Android HTTP requests. Improved the helper so two transports for a verified single phone do not cause automatic forwarding to skip. Different, unknown or unresponsive hardware identities remain ambiguous; no arbitrary second phone is selected and no transport is disconnected.
+
+For the temporary Kamatera selection, saved exact previous settings in restricted `C:/Users/leste/.campushub-secrets/before-reconnect-kamatera-20261108T170044Z/` (UTC filename; November 9 locally). Only active `DATABASE_URL` values changed in that switch. Restarted only verified local Django/chat trees, including a leftover Uvicorn child whose port ownership/parent PID matched the inspected chat tree. The later separate local restoration remains in place; no further runtime change is made while clarification is pending.
+
+### 4. How it works / functions, inputs, outputs and data flow
+
+`connected_phone_serials(output)` preserves spaces in complete authorized serials. `resolve_single_phone(adb, devices)` immediately returns the only transport when one exists. With multiple transports, it reads each `ro.serialno` through literal, bounded ADB arguments. Matching nonempty, non-placeholder identities can be grouped; different or unknown values and probe timeouts return no automatic choice. USB is preferred over IP, then discovery. `main()` applies only the existing 8000/8001 reverse mappings; `--device` still selects one authorized transport explicitly. Tests mock ADB, so they do not touch a real phone.
+
+Annotated example: `192.0.2.1:12345` and `adb-example (2)._adb-tls-connect._tcp` can resolve to one candidate only if both report the same hardware identity. That example uses a documentation/test address, not a real project server. Two different identities remain separate even when their model names match.
+
+```text
+Phone -> existing Django API on PC :8000 -> selected PostgreSQL database
+       -> ADB loopback forwarding or existing PC Wi-Fi route
+PC database mode: Django -> PC :5432/campushub
+Kamatera mode:    Django -> SSH loopback :15432 -> existing Kamatera :5432/campushub
+```
+
+The existing Django `.env` loader/URL parser and chat Settings/SQLAlchemy engine select the database. The phone continues to call Django, never PostgreSQL directly. Service restarts are necessary after a URL change because running processes can retain old connections. Configuration comments alone do not select a database; the un-commented key does.
+
+### 5. Backend / API behavior
+
+An empty login POST `{}` returns 400 with `Username/email and password are required.` before account lookup/audit writes; this is deliberate validation, not failed connectivity or a successful sign-in. A temporary Java HTTP probe ran on the physical Android phone using the existing JDK/Android tools. Both `http://127.0.0.1:8000` via forwarding and current PC Wi-Fi `http://192.168.1.187:8000` returned recognized catalog JSON (200) and that login validation (400). The temporary diagnostic DEX was removed afterward; no application was replaced and no credentials were sent.
+
+This probe ran under Android's shell, not through the Flutter login form. It verifies the network/route but does not establish actual credential acceptance. Earlier netcat probes returned no data and are inconclusive; a live Dart-origin probe did not find a usable VM endpoint. Those are not counted as successful checks. Existing AuthService, password checks, suspended-account rules and token issuance are unchanged.
+
+### 6. Database / migration impact
+
+During the temporary online selection, fresh active Django checks verified the original Kamatera `campushub`/role through client 15432, 48 tables/108 applied migrations, no pending migrations and no missing model tables/columns under enforced read-only mode. Chat's async driver independently confirmed the same destination in a read-only transaction. These are dated online-readiness results. The latest active URLs subsequently returned to local port 5432 through the other session's work.
+
+No database creation, schema migration, restore, synchronization, account/password modification or order/payment/inventory write was performed. PC-only accounts and records were not copied online. Neither destination's credentials were moved into Flutter or Git.
+
+### 7. Tests performed / safe practice
+
+- **10 Python forwarding regressions passed:** USB/spaced-name/explicit/unauthorized handling, multiple-phone refusal, verified aliases, distinct/unknown hardware, unresponsive aliases and default forwarding arguments.
+- Actual default forwarding succeeded while both matching phone aliases remained attached.
+- Physical Android catalog/login validation checks passed over both routes. PC catalog/chat-health checks returned 200; PC empty-login validation returned 400 as expected.
+- Original saved Kamatera and the temporary active Django/chat online checks passed. Fresh database/migration/schema checks made no writes.
+- No real credential login, registration, password reset, application-data clear, Flutter-wide test rerun or public API deployment was performed in this task. Prior broader Flutter failures remain recorded below.
+
+Ignored evidence is under root `scratch/mobile-login-20261109/`, including `CampusHubApiProbe.java`, `android-api-probe-live.log`, `phone-login-probe.json` and `live-http.json`. The latter filenames describe the moment tested, not an immutable ongoing database selection.
+
+Safe exercise: run `backend/core/venv/Scripts/python.exe -m unittest discover -s campushub/scripts -p test_connect_android.py -v` from the project root, then the normal forwarding helper and `adb -s <device_id> reverse --list`. Expect passing mocked tests and both mappings. For login reachability, send only `{}` and expect required-field validation; use credentials only in the normal app. Confirm the selected database before testing accounts; do not create or copy users merely to conceal a destination mismatch.
+
+### 8. Remaining limitations / troubleshooting
+
+The exact earlier error text and real credential sign-in remain unverified; the user was asked for the error message without credentials. The latest local database choice is retained until the conflicting request is clarified. Once a mode is chosen, avoid simultaneous tasks selecting different databases, then verify both files and running processes consistently. An account existing only in one independent database may not authenticate in the other. Both current modes depend on PC Django being available to the phone; selecting an online database does not make the PC API a public hosted deployment.
+
 ## Ctrl+F5 build and launch repairs — November 8–9, 2026
 
 ### 1. Cause / reason

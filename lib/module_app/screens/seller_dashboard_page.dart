@@ -1,5 +1,6 @@
 import 'package:campushub/module_app/theme/app_typography.dart';
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,8 @@ import 'profile_details_pages.dart';
 import 'facilities/facility_booking_history_screen.dart';
 import 'seller_workspace_content.dart';
 import 'seller_bundle_form.dart';
+import 'seller_demo_bundle_page.dart';
+import '../services/demo_bundle_store.dart';
 
 class SellerDashboardPage extends StatefulWidget {
   const SellerDashboardPage({
@@ -35,6 +38,8 @@ class SellerDashboardPage extends StatefulWidget {
     this.refreshRevision = 0,
     this.afterSalesTrend,
     this.afterInventoryAlerts,
+    this.initialRecommendationSource = 'live',
+    this.onRecommendationSourceChanged,
   });
   final AuthUser user;
   final SellerApplicationService service;
@@ -49,6 +54,8 @@ class SellerDashboardPage extends StatefulWidget {
   final int refreshRevision;
   final Widget? afterSalesTrend;
   final Widget? afterInventoryAlerts;
+  final String initialRecommendationSource;
+  final ValueChanged<String>? onRecommendationSourceChanged;
   @override
   State<SellerDashboardPage> createState() => _SellerDashboardPageState();
 }
@@ -71,6 +78,10 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
   int _ordersPage = 1, _request = 0;
   Map<String, dynamic> _data = {};
   AuthUser? _profileUser;
+  bool _recommendationsLoading = false;
+  int _recommendationRequest = 0;
+  final _sectionRequests = <String, int>{};
+  final _sectionLoading = <String>{};
 
   @override
   void initState() {
@@ -83,20 +94,27 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
   void didUpdateWidget(covariant SellerDashboardPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.user != oldWidget.user) _profileUser = null;
-    if (widget.homeSection &&
-        widget.refreshRevision != oldWidget.refreshRevision) {
+    final sourceChanged =
+        widget.initialRecommendationSource !=
+        oldWidget.initialRecommendationSource;
+    if (widget.user.id != oldWidget.user.id ||
+        (widget.homeSection &&
+            (widget.refreshRevision != oldWidget.refreshRevision ||
+                sourceChanged))) {
       _load();
     }
   }
 
   Future<void> _load() async {
     final request = ++_request;
+    ++_recommendationRequest;
     ++_salesRequest; // A full refresh supersedes any pending sales-only request.
     setState(() {
       _loading = true;
       _error = null;
       _salesLoading = false;
       _salesError = null;
+      _recommendationsLoading = false;
     });
     try {
       final status = await widget.service.status();
@@ -131,7 +149,17 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
           'The seller workspace returned an unreadable response. Retry.',
         );
       }
-      if (mounted && request == _request) setState(() => _data = data);
+      if (mounted && request == _request) {
+        setState(() {
+          _sectionLoading.clear();
+          _data = {
+            ...data,
+            'recommendation_sections': {'live': data['recommendations']},
+          };
+        });
+        unawaited(_refreshRecommendations('admin'));
+        unawaited(_refreshRecommendations('synthetic'));
+      }
     } catch (error) {
       if (error is SellerApplicationException &&
           [401, 403].contains(error.statusCode) &&
@@ -298,12 +326,93 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
   }
 
   Future<void> _createBundle(Map<String, dynamic> pair) async {
-    final ids = (pair['products'] as List).map((p) => '${p['id']}').toSet();
-    final products = (_data['products'] as List)
+    final actor = widget.user.id;
+    final workspaceRequest = _request;
+    final recommendationRequest = _recommendationRequest;
+    if (pair['source'] == 'synthetic') {
+      if (!_approved || !DemoBundleStore.validPair(pair)) return;
+      final store = DemoBundleStore(actor);
+      try {
+        final saved = await store.find(pair);
+        if (!mounted ||
+            actor != widget.user.id ||
+            workspaceRequest != _request ||
+            recommendationRequest != _recommendationRequest) {
+          return;
+        }
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SellerDemoBundlePage(
+              pair: saved == null
+                  ? pair
+                  : Map<String, dynamic>.from(saved['recommendation']),
+              store: store,
+              saved: saved,
+            ),
+          ),
+        );
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to read demo storage. Please retry.'),
+            ),
+          );
+        }
+      }
+      return;
+    }
+    Map<String, dynamic> verified;
+    try {
+      verified = await widget.service.recommendationAction(
+        pair,
+        pair['source'] == 'admin' && pair['status'] == 'pending'
+            ? 'accept'
+            : 'validate',
+      );
+    } catch (error) {
+      if (mounted) {
+        if (error is SellerApplicationException &&
+            [401, 403].contains(error.statusCode)) {
+          ++_request;
+          ++_recommendationRequest;
+          ++_salesRequest;
+          setState(() {
+            _approved = false;
+            _data = {};
+            _loading = false;
+            _error = error.message;
+            _sectionLoading.clear();
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error is SellerApplicationException
+                    ? error.message
+                    : 'Unable to verify these products. Retry.',
+              ),
+            ),
+          );
+        }
+      }
+      return;
+    }
+    if (!mounted ||
+        actor != widget.user.id ||
+        workspaceRequest != _request ||
+        recommendationRequest != _recommendationRequest) {
+      return;
+    }
+    final products = (verified['products'] as List? ?? [])
         .whereType<Map>()
-        .where((p) => ids.contains('${p['id']}'))
         .map((p) => Map<String, dynamic>.from(p))
         .toList();
+    final ids = products.map((p) => '${p['id']}').toSet();
+    if (pair['source'] == 'admin') {
+      _updateAdminDecision(pair, '${verified['status'] ?? 'accepted'}');
+    }
     if (ids.length != 2 || products.length != 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -316,7 +425,9 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
       context,
       MaterialPageRoute(
         builder: (_) => SellerBundleForm(
-          pairId: '${pair['id']}',
+          pairId: '${verified['id']}',
+          source: '${verified['source'] ?? 'live'}',
+          revision: verified['revision'] as String?,
           products: products,
           service: widget.service,
         ),
@@ -324,10 +435,136 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
     );
     if (submitted == true && mounted) {
       if (widget.homeSection) {
-        widget.onOpenDestination?.call(SellerDestination.bundles);
+        widget.onOpenDestination?.call(SellerDestination.products);
       }
-      setState(() => _selected = SellerDestination.bundles);
+      setState(() => _selected = SellerDestination.products);
       await _load();
+    }
+  }
+
+  Future<void> _refreshRecommendations(String source) async {
+    if (!{'admin', 'live', 'synthetic'}.contains(source)) return;
+    final generation = (_sectionRequests[source] ?? 0) + 1;
+    _sectionRequests[source] = generation;
+    final workspaceRequest = _request;
+    setState(() {
+      _sectionLoading.add(source);
+    });
+    try {
+      final result = await widget.service.recommendations(source);
+      if (result['rows'] is! List ||
+          result['source'] != source ||
+          result['error'] is! bool) {
+        throw const SellerApplicationException(
+          'Unreadable recommendations. Retry.',
+        );
+      }
+      if (mounted &&
+          generation == _sectionRequests[source] &&
+          workspaceRequest == _request) {
+        setState(
+          () => _data = {
+            ..._data,
+            'recommendation_sections': {
+              ...?_data['recommendation_sections'] as Map?,
+              source: result,
+            },
+          },
+        );
+      }
+    } catch (error) {
+      if (mounted &&
+          generation == _sectionRequests[source] &&
+          workspaceRequest == _request) {
+        if (error is SellerApplicationException &&
+            [401, 403].contains(error.statusCode)) {
+          ++_request;
+          ++_recommendationRequest;
+          ++_salesRequest;
+          setState(() {
+            _approved = false;
+            _data = {};
+            _loading = false;
+            _error = error.message;
+            _sectionLoading.clear();
+          });
+        } else {
+          setState(
+            () => _data = {
+              ..._data,
+              'recommendation_sections': {
+                ...?_data['recommendation_sections'] as Map?,
+                source: {'source': source, 'rows': [], 'error': true},
+              },
+            },
+          );
+        }
+      }
+    } finally {
+      if (mounted &&
+          generation == _sectionRequests[source] &&
+          workspaceRequest == _request) {
+        setState(() => _sectionLoading.remove(source));
+      }
+    }
+  }
+
+  Future<void> _dismissRecommendation(Map<String, dynamic> row) async {
+    final workspaceRequest = _request;
+    final recommendationRequest = _recommendationRequest;
+    try {
+      await widget.service.recommendationAction(row, 'dismiss');
+    } on SellerApplicationException catch (error) {
+      if ([401, 403].contains(error.statusCode) && mounted) await _load();
+      rethrow;
+    }
+    if (!mounted ||
+        workspaceRequest != _request ||
+        recommendationRequest != _recommendationRequest) {
+      return;
+    }
+    final source = '${row['source'] ?? 'live'}';
+    final sections = Map<String, dynamic>.from(
+      _data['recommendation_sections'] as Map? ?? {},
+    );
+    final recommendations = Map<String, dynamic>.from(
+      sections[source] as Map? ?? _data['recommendations'] as Map,
+    );
+    recommendations['rows'] = (recommendations['rows'] as List)
+        .where((item) => item['id'] != row['id'])
+        .toList();
+    sections[source] = recommendations;
+    setState(() => _data = {..._data, 'recommendation_sections': sections});
+  }
+
+  void _updateAdminDecision(Map<String, dynamic> pair, String status) {
+    _sectionRequests['admin'] = (_sectionRequests['admin'] ?? 0) + 1;
+    _sectionLoading.remove('admin');
+    final sections = Map<String, dynamic>.from(
+      _data['recommendation_sections'] as Map? ?? {},
+    );
+    final admin = Map<String, dynamic>.from(sections['admin'] as Map? ?? {});
+    admin['rows'] = [
+      for (final row in admin['rows'] as List? ?? [])
+        if (row['id'] == pair['id'])
+          {...row as Map, 'status': status, 'can_create': status == 'accepted'}
+        else
+          row,
+    ];
+    sections['admin'] = admin;
+    setState(() => _data = {..._data, 'recommendation_sections': sections});
+  }
+
+  Future<void> _declineRecommendation(Map<String, dynamic> pair) async {
+    final request = _request;
+    try {
+      final result = await widget.service.recommendationAction(pair, 'decline');
+      if (mounted && request == _request) {
+        _updateAdminDecision(pair, '${result['status']}');
+      }
+    } on SellerApplicationException catch (error) {
+      if ([401, 403].contains(error.statusCode) && mounted) await _load();
+      rethrow;
     }
   }
 
@@ -358,6 +595,11 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                   sellerFirstName: widget.user.firstName,
                   onNavigate: _select,
                   onCreateBundle: _createBundle,
+                  onDismissRecommendation: _dismissRecommendation,
+                  onDeclineRecommendation: _declineRecommendation,
+                  recommendationLoadingSources: _sectionLoading,
+                  onRecommendationSource: _refreshRecommendations,
+                  recommendationsLoading: _recommendationsLoading,
                   onAddProduct: () {},
                   onReload: _load,
                   onOrderProgress: widget.service.orderProgress,
@@ -516,6 +758,11 @@ class _SellerDashboardPageState extends State<SellerDashboardPage>
                               sellerFirstName: widget.user.firstName,
                               onNavigate: _select,
                               onCreateBundle: _createBundle,
+                              onDismissRecommendation: _dismissRecommendation,
+                              onDeclineRecommendation: _declineRecommendation,
+                              recommendationLoadingSources: _sectionLoading,
+                              onRecommendationSource: _refreshRecommendations,
+                              recommendationsLoading: _recommendationsLoading,
                               onAddProduct: () async {
                                 await ProductsScreen.showAddProductPage(
                                   context,
